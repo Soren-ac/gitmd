@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  gitmd:
+    build: .
+    ports:
+      - '3000:3000'
+    volumes:
+      - gitmd-data:/data
+      # SSH deploy key 只读挂载
+      - ./keys/deploy_key:/keys/deploy_key:ro
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+      GIT_SSH_KEY: /keys/deploy_key
+    restart: unless-stopped
+
+volumes:
+  gitmd-data:
