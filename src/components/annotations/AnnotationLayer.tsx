@@ -1,8 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Check, MessageSquarePlus, RotateCcw, Send, Trash2, X } from 'lucide-react'
-import { useToast } from './Toast'
+import { Check, MessageSquarePlus, MessageSquareWarning, RotateCcw, Send, Trash2, X } from 'lucide-react'
+import { useToast } from '@/components/common/Toast'
 
 /* ---------- 类型（与 API 返回一致） ---------- */
 interface AnnComment {
@@ -48,6 +48,7 @@ export default function AnnotationLayer({ doc }: { doc: string }) {
   const [composing, setComposing] = useState(false)
   const [body, setBody] = useState('')
   const [openRange, setOpenRange] = useState<{ start: number; end: number; x: number; y: number } | null>(null)
+  const [orphanOpen, setOrphanOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [me, setMe] = useState('')
   const rootRef = useRef<HTMLDivElement>(null)
@@ -205,7 +206,8 @@ export default function AnnotationLayer({ doc }: { doc: string }) {
   /* ---------- 点击虚线标记 → 批注气泡 ---------- */
   useEffect(() => {
     function onClick(e: MouseEvent) {
-      const mark = (e.target as HTMLElement).closest?.('mark.annotation-mark') as HTMLElement | null
+      const target = e.target as HTMLElement
+      const mark = target.closest?.('mark.annotation-mark') as HTMLElement | null
       if (mark) {
         // 在已批注文字上拖选时浏览器会补发 click；有选区说明正要追加批注，不要打开气泡或清掉新建入口
         const selection = window.getSelection()
@@ -217,10 +219,12 @@ export default function AnnotationLayer({ doc }: { doc: string }) {
           ...docPos(rect, 380),
         })
         setSel(null)
-      } else if (!(e.target as HTMLElement).closest?.('.annotation-popover')) {
+        setOrphanOpen(false)
+      } else if (!target.closest?.('.annotation-popover') && !target.closest?.('.annotation-orphan-chip')) {
         setOpenRange(null)
+        setOrphanOpen(false)
         // 点空白处取消选区后，悬浮的「批注」入口一并消失（点在入口自身或气泡内除外）
-        if (!(e.target as HTMLElement).closest?.('.annotation-hint')) {
+        if (!target.closest?.('.annotation-hint')) {
           const selection = window.getSelection()
           if (!selection || selection.isCollapsed) setSel(null)
         }
@@ -282,6 +286,9 @@ export default function AnnotationLayer({ doc }: { doc: string }) {
         .sort((a, b) => a.created_at.localeCompare(b.created_at))
     : []
 
+  // 原文已删除/大改导致无法定位的批注：不从正文消失，集中收在右下角入口里
+  const orphans = anns.filter((a) => !a.located).sort((a, b) => a.created_at.localeCompare(b.created_at))
+
   /** 从气泡里对同一段文字追加一条独立批注 */
   function startAppend() {
     if (!openRange) return
@@ -301,6 +308,46 @@ export default function AnnotationLayer({ doc }: { doc: string }) {
     setComposing(true)
     setBody('')
     setOpenRange(null)
+  }
+
+  function renderCard(a: Ann) {
+    return (
+      <div key={a.id} className={`annotation-card ${a.resolved ? 'resolved' : ''}`}>
+        <div className="annotation-card-head">
+          <span className="annotation-author">{a.author}</span>
+          <span className="annotation-time">{new Date(a.created_at).toLocaleDateString('zh-CN')}</span>
+          {a.status === 'relocated' && <span className="ann-badge">已移动</span>}
+          {a.status === 'orphaned' && <span className="ann-badge warn">原文已变更</span>}
+          {a.resolved && <span className="ann-badge ok">已解决</span>}
+        </div>
+        {a.status === 'orphaned' && <div className="annotation-quote">原文：“{a.anchor.quote}”</div>}
+        {a.comments.map((c, i) => (
+          <div key={i} className="annotation-comment">
+            <span className="annotation-comment-author">{c.author}</span>
+            <span className="annotation-comment-body">{c.body}</span>
+          </div>
+        ))}
+        <div className="annotation-card-actions">
+          <button
+            className="btn btn-sm btn-ghost"
+            onClick={() => action(a.id, 'resolve')}
+          >
+            {a.resolved ? <RotateCcw size={13} /> : <Check size={13} />}
+            {a.resolved ? '重新打开' : '标记解决'}
+          </button>
+          {a.author === me && (
+            <button
+              className="btn btn-icon btn-danger"
+              aria-label="删除批注"
+              title="删除批注"
+              onClick={() => action(a.id, 'delete')}
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -354,47 +401,30 @@ export default function AnnotationLayer({ doc }: { doc: string }) {
               <X size={13} />
             </button>
           </div>
-          {openAnns.map((a) => (
-            <div key={a.id} className={`annotation-card ${a.resolved ? 'resolved' : ''}`}>
-              <div className="annotation-card-head">
-                <span className="annotation-author">{a.author}</span>
-                <span className="annotation-time">{new Date(a.created_at).toLocaleDateString('zh-CN')}</span>
-                {a.status === 'relocated' && <span className="ann-badge">已移动</span>}
-                {a.status === 'orphaned' && <span className="ann-badge warn">原文已变更</span>}
-                {a.resolved && <span className="ann-badge ok">已解决</span>}
-              </div>
-              {a.status === 'orphaned' && <div className="annotation-quote">原文：“{a.anchor.quote}”</div>}
-              {a.comments.map((c, i) => (
-                <div key={i} className="annotation-comment">
-                  <span className="annotation-comment-author">{c.author}</span>
-                  <span className="annotation-comment-body">{c.body}</span>
-                </div>
-              ))}
-              <div className="annotation-card-actions">
-                <button
-                  className="btn btn-sm btn-ghost"
-                  onClick={() => action(a.id, 'resolve')}
-                >
-                  {a.resolved ? <RotateCcw size={13} /> : <Check size={13} />}
-                  {a.resolved ? '重新打开' : '标记解决'}
-                </button>
-                {a.author === me && (
-                  <button
-                    className="btn btn-icon btn-danger"
-                    aria-label="删除批注"
-                    title="删除批注"
-                    onClick={() => action(a.id, 'delete')}
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
+          {openAnns.map(renderCard)}
           <button className="btn btn-sm btn-ghost annotation-append-btn" onClick={startAppend}>
             <MessageSquarePlus size={13} />
             追加批注
           </button>
+        </div>
+      )}
+
+      {/* 失效批注入口：锚点原文已删除或大改，无法在正文高亮时兜底可见 */}
+      {orphans.length > 0 && (
+        <button className="annotation-orphan-chip" onClick={() => setOrphanOpen((v) => !v)}>
+          <MessageSquareWarning size={14} />
+          {orphans.length} 条失效批注
+        </button>
+      )}
+      {orphanOpen && orphans.length > 0 && (
+        <div className="annotation-popover annotation-thread annotation-orphans">
+          <div className="annotation-popover-head">
+            <span>失效批注（原文已删除或大改）</span>
+            <button className="btn btn-icon" style={{ width: 22, height: 22 }} aria-label="关闭" onClick={() => setOrphanOpen(false)}>
+              <X size={13} />
+            </button>
+          </div>
+          {orphans.map(renderCard)}
         </div>
       )}
     </div>

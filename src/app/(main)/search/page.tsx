@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { FileText, SearchX } from 'lucide-react'
-import { searchDocs } from '@/lib/search'
+import { searchDocs } from '@/lib/search/search'
 
 export const dynamic = 'force-dynamic'
 

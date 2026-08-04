@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
-import { getSessionUser, gitIdentityOf } from '@/lib/auth'
-import { updateAnnotation, deleteAnnotation, readAnnotations } from '@/lib/annotations'
-import { resolveSafe, toRel } from '@/lib/docs'
-import { withWriteOp } from '@/lib/git'
+import { getSessionUser, gitIdentityOf } from '@/lib/auth/auth'
+import { updateAnnotation, deleteAnnotation, readAnnotations } from '@/lib/annotations/annotations'
+import { resolveSafe, toRel } from '@/lib/content/docs'
+import { withWriteOp } from '@/lib/git/git'
 
 /** 批注操作 {path, id, action: resolve|delete} */
 export async function POST(req: Request) {

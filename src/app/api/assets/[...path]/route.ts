@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import fs from 'node:fs'
 import path from 'node:path'
-import { getSessionUser } from '@/lib/auth'
-import { resolveSafe } from '@/lib/docs'
+import { getSessionUser } from '@/lib/auth/auth'
+import { resolveSafe } from '@/lib/content/docs'
 
 const MIME: Record<string, string> = {
   '.png': 'image/png',

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
-import { getSessionUser } from '@/lib/auth'
-import { db } from '@/lib/db'
+import { getSessionUser } from '@/lib/auth/auth'
+import { db } from '@/lib/core/db'
 
 const EMAIL_RE = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/
 

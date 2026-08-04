@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { GitBranch } from 'lucide-react'
-import { getSessionUser } from '@/lib/auth'
+import { getSessionUser } from '@/lib/auth/auth'
 import LoginForm from './LoginForm'
 
 export default async function LoginPage() {

@@ -41,6 +41,7 @@ Git-backed 的内部文档平台：从 CodeHub 仓库拉取 Markdown 渲染展�
 | 数据库 | SQLite（better-sqlite3），只存用户、FTS 索引、同步状态 |
 | 冲突策略 | 内容哈希乐观锁 + push 失败后 fetch+rebase 自动重试，仍冲突则 409 返回前端 |
 | 同步 | webhook（验签）+ 定时轮询兜底（默认 10 分钟） |
+| 批注存储 | 仓库内 YAML sidecar（`.gitmd/annotations/*.yaml`），随 git 同步分发；锚点随版本自动重定位 |
 
 ## 3. 数据流
 
@@ -88,6 +89,8 @@ CREATE TABLE users (
   username      TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,          -- scrypt: salt:hash (hex)
   role          TEXT NOT NULL DEFAULT 'member',  -- admin | member
+  git_name      TEXT,                   -- 提交身份（author 显示名），启动时 ALTER 迁移补齐
+  git_email     TEXT,                   -- 提交身份邮箱
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -108,6 +111,7 @@ CREATE TABLE sync_state (
 ```
 
 首次启动用 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 环境变量播种 admin 账号。
+存量库的 schema 演进用 `PRAGMA table_info` 探测后按需 `ALTER TABLE`，不做版本化迁移框架。
 
 ## 5. API 路由清单
 
@@ -116,6 +120,7 @@ CREATE TABLE sync_state (
 | POST | /api/auth/login | 登录，设置 httpOnly cookie |
 | POST | /api/auth/logout | 登出 |
 | GET | /api/auth/me | 当前用户 |
+| PUT | /api/auth/profile | 修改个人 Git 提交身份（git_name / git_email） |
 | GET | /api/tree | 文档文件树 |
 | GET | /api/docs/[...path] | 读原始 md + 内容哈希 + frontmatter |
 | PUT | /api/docs/[...path] | 保存（携带 baseHash，乐观锁） |
@@ -127,9 +132,13 @@ CREATE TABLE sync_state (
 | GET | /api/search?q= | FTS5 全文搜索 |
 | GET | /api/history/[...path] | 文件 git log |
 | GET | /api/diff?path=&from=&to= | 两版本 diff |
+| GET | /api/annotations?path= | 读取文档批注（含锚点重定位） |
+| POST | /api/annotations | 新建批注（commit + push） |
+| POST | /api/annotations/action | 标记解决 / 重新打开 / 删除（仅本人） |
 | POST | /api/webhook?token= | CodeHub webhook，验签后触发同步 |
 | POST | /api/sync | 手动同步（admin） |
-| GET | /api/admin/users / POST/DELETE | 用户管理（admin） |
+| GET/POST | /api/admin/users | 用户列表 / 新建用户（admin） |
+| PUT/DELETE | /api/admin/users/[id] | 改密码（本人或 admin）/ 删除用户（admin，不可删自己） |
 
 约定：所有写操作返回 `{ ok: true, head }` 或 `{ ok: false, error }`；冲突返回 HTTP 409。
 
@@ -158,7 +167,41 @@ remark-parse → remark-gfm → remark-frontmatter → remark-math
 - 内容来自可信内部仓库，不做 sanitize（如需对外开放再补 rehype-sanitize + 自定义 schema）
 - 相对路径图片重写为 `/api/assets/<path>`
 
-## 8. 安全要点
+## 8. 批注系统
+
+批注是对文档片段的行内讨论，**数据存放在仓库内而非 SQLite**，随 git 同步天然分发、可在 Git 侧直接审阅，符合"仓库是唯一数据源"的原则。
+
+### 8.1 存储格式
+
+每篇文档一个 sidecar 文件：`.gitmd/annotations/<doc路径>.yaml`（如 `guide/a.md` → `.gitmd/annotations/guide/a.md.yaml`）。写入走与编辑相同的 `withWriteOp` 通道（串行队列 + commit + push，author = 操作者）。
+
+### 8.2 锚点模型
+
+锚点是源码位置 + 文本上下文 + Git 版本 + AST 信息的组合：
+
+| 字段 | 作用 |
+|---|---|
+| quote / prefix / suffix | 精确匹配与模糊重定位的主锚点（前后文各 40 字符） |
+| start / end | 创建时（base 版本）的正文偏移，快速路径；偏移基于去掉 frontmatter 的正文，与渲染节点 `data-source-*` 坐标系一致 |
+| base | 创建时的 commit SHA，用于 diff 平移 |
+| section | 所在最近标题文本，重名 quote 时辅助投票 |
+
+### 8.3 重定位策略（读取时计算，不回写）
+
+每次读取批注时按序尝试，直到定位成功：
+
+1. **exact**：quote 在原文位置或全局唯一命中
+2. **relocated**：`git diff base..HEAD -U0` 得到行映射，把 base 偏移平移到当前版本（同文档的所有批注按 base 分组，共享一次 `git show` / `git diff`，批量在单个锁内完成）
+3. **fuzzy**：prefix/suffix/section 加权投票找最佳候选
+4. **orphaned**：全部失败——原文已删除或大改，前端收进右下角「失效批注」面板，可解决/删除，不丢数据
+
+### 8.4 交互模型
+
+- 同一段文字可叠加多条独立批注（平铺按时间排序），每条批注内可追加多条评论
+- 标记解决 / 重新打开任何登录用户可操作；删除仅限批注作者本人
+- 前端气泡用 `position: absolute` 锚定在正文附近，随页面滚动
+
+## 9. 安全要点
 
 - 会话：httpOnly + SameSite=Lax cookie，HMAC-SHA256 签名，7 天过期，`AUTH_SECRET` 环境变量
 - 密码：node:crypto scrypt（salt 16B），timingSafeEqual 比对
@@ -167,16 +210,17 @@ remark-parse → remark-gfm → remark-frontmatter → remark-math
 - 图片/资源接口同样要求登录
 - git 凭据：SSH deploy key 挂载到容器，不出现在代码和日志中
 
-## 9. 部署
+## 10. 部署
 
 - 单个 Dockerfile（node + git + openssh），卷挂载 `DATA_DIR`（SQLite + repo clone）
 - 环境变量见 `.env.example`
 - CodeHub 配置：仓库 Settings → Webhooks → URL 填 `https://<平台地址>/api/webhook?token=<WEBHOOK_SECRET>`，事件勾选 Push
 - 兜底轮询 `POLL_INTERVAL_MS`（默认 600000）
 
-## 10. 里程碑
+## 11. 里程碑
 
 - M1 骨架：认证 + 克隆/同步 + 只读渲染
 - M2 编辑闭环：源码编辑 + 保存 push + 乐观锁 + webhook/轮询
 - M3 编辑体验：WYSIWYG 双模式、图片上传、文件树增删改移动
 - M4 增强：mermaid/公式、全文搜索、版本历史/diff
+- M5 协作：批注系统（锚点重定位、仓库内 sidecar 存储）

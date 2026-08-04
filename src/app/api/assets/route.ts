@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import path from 'node:path'
-import { getSessionUser, gitIdentityOf } from '@/lib/auth'
-import { resolveSafe } from '@/lib/docs'
-import { withWriteOp } from '@/lib/git'
+import { getSessionUser, gitIdentityOf } from '@/lib/auth/auth'
+import { resolveSafe } from '@/lib/content/docs'
+import { withWriteOp } from '@/lib/git/git'
 
 const ALLOWED_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico'])
 

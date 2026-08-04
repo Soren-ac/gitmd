@@ -1,10 +1,10 @@
 import path from 'node:path'
 import { notFound, redirect } from 'next/navigation'
-import { config } from '@/lib/config'
-import { isRepoCloned } from '@/lib/git'
-import { readDoc } from '@/lib/docs'
-import { getSessionUser, gitIdentityOf } from '@/lib/auth'
-import Editor from '@/components/Editor'
+import { config } from '@/lib/core/config'
+import { isRepoCloned } from '@/lib/git/git'
+import { readDoc } from '@/lib/content/docs'
+import { getSessionUser, gitIdentityOf } from '@/lib/auth/auth'
+import Editor from '@/components/editor/Editor'
 
 export const dynamic = 'force-dynamic'
 

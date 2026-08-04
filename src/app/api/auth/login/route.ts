@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
-import { db } from '@/lib/db'
-import { verifyPassword } from '@/lib/auth-core'
-import { setSessionCookie } from '@/lib/auth'
-import type { UserRow } from '@/lib/db'
+import { db } from '@/lib/core/db'
+import { verifyPassword } from '@/lib/auth/auth-core'
+import { setSessionCookie } from '@/lib/auth/auth'
+import type { UserRow } from '@/lib/core/db'
 
 export async function POST(req: Request) {
   const { username, password } = await req.json().catch(() => ({}))

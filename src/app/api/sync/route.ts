@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
-import { getSessionUser } from '@/lib/auth'
-import { getSyncState } from '@/lib/db'
-import { isRepoCloned } from '@/lib/git'
-import { triggerSync } from '@/lib/sync'
-import { config } from '@/lib/config'
+import { getSessionUser } from '@/lib/auth/auth'
+import { getSyncState } from '@/lib/core/db'
+import { isRepoCloned } from '@/lib/git/git'
+import { triggerSync } from '@/lib/git/sync'
+import { config } from '@/lib/core/config'
 
 export async function GET() {
   const user = await getSessionUser()

@@ -1,9 +1,9 @@
 import path from 'node:path'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { config } from '@/lib/config'
-import { isRepoCloned, fileLog, withGitLock } from '@/lib/git'
-import HistoryList from '@/components/HistoryList'
+import { config } from '@/lib/core/config'
+import { isRepoCloned, fileLog, withGitLock } from '@/lib/git/git'
+import HistoryList from '@/components/docs/HistoryList'
 
 export const dynamic = 'force-dynamic'
 

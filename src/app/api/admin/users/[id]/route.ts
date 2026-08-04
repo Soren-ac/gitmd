@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
-import { getSessionUser } from '@/lib/auth'
-import { db } from '@/lib/db'
-import { hashPassword } from '@/lib/auth-core'
+import { getSessionUser } from '@/lib/auth/auth'
+import { db } from '@/lib/core/db'
+import { hashPassword } from '@/lib/auth/auth-core'
 
 type Ctx = { params: Promise<{ id: string }> }
 

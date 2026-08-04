@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server'
 import fs from 'node:fs'
 import path from 'node:path'
-import { getSessionUser, gitIdentityOf } from '@/lib/auth'
-import { resolveSafe, readDoc, contentHash, toRel } from '@/lib/docs'
-import { withWriteOp, ConflictError } from '@/lib/git'
-import { indexFile, removeFromIndex } from '@/lib/search'
-import { splitFrontmatter } from '@/lib/frontmatter'
-import { extractTitle } from '@/lib/docs'
+import { getSessionUser, gitIdentityOf } from '@/lib/auth/auth'
+import { resolveSafe, readDoc, contentHash, toRel } from '@/lib/content/docs'
+import { withWriteOp, ConflictError } from '@/lib/git/git'
+import { indexFile, removeFromIndex } from '@/lib/search/search'
+import { splitFrontmatter } from '@/lib/markdown/frontmatter'
+import { extractTitle } from '@/lib/content/docs'
 
 type Ctx = { params: Promise<{ path: string[] }> }
 

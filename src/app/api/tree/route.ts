@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
-import { getSessionUser } from '@/lib/auth'
-import { buildTree } from '@/lib/docs'
+import { getSessionUser } from '@/lib/auth/auth'
+import { buildTree } from '@/lib/content/docs'
 
 export async function GET() {
   const user = await getSessionUser()

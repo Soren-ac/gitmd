@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
-import { getSessionUser } from '@/lib/auth'
-import { renderMarkdownHtml } from '@/lib/markdown'
+import { getSessionUser } from '@/lib/auth/auth'
+import { renderMarkdownHtml } from '@/lib/markdown/markdown'
 
 /** 编辑器实时预览：md 文本 → HTML */
 export async function POST(req: Request) {

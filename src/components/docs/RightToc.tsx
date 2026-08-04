@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import type { TocItem } from '@/lib/markdown'
+import type { TocItem } from '@/lib/markdown/markdown'
 
 /** 右侧"本页目录"：滚动监听高亮当前章节，点击平滑滚动 */
 export default function RightToc({ toc }: { toc: TocItem[] }) {

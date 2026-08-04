@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import simpleGit, { type SimpleGit } from 'simple-git'
-import { config } from './config'
+import { config } from '@/lib/core/config'
 
 export class ConflictError extends Error {
   constructor(

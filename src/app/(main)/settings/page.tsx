@@ -1,6 +1,6 @@
-import { getSessionUser } from '@/lib/auth'
+import { getSessionUser } from '@/lib/auth/auth'
 import { redirect } from 'next/navigation'
-import SettingsForm from '@/components/SettingsForm'
+import SettingsForm from '@/components/settings/SettingsForm'
 
 export const dynamic = 'force-dynamic'
 

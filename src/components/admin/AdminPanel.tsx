@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { KeyRound, RefreshCw, Trash2, UserPlus, Users, Database } from 'lucide-react'
-import { useToast } from '@/components/Toast'
-import { useDialog } from '@/components/Dialog'
+import { useToast } from '@/components/common/Toast'
+import { useDialog } from '@/components/common/Dialog'
 
 interface SyncInfo {
   repoCloned: boolean

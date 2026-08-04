@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
-import { getSessionUser } from '@/lib/auth'
-import AdminPanel from '@/components/AdminPanel'
+import { getSessionUser } from '@/lib/auth/auth'
+import AdminPanel from '@/components/admin/AdminPanel'
 
 export const dynamic = 'force-dynamic'
 

@@ -1,6 +1,7 @@
-import { db } from './db'
-import { listMarkdownFiles, readDoc } from './docs'
-import { config } from './config'
+import { db } from '@/lib/core/db'
+import { listMarkdownFiles, readDoc } from '@/lib/content/docs'
+import { config } from '@/lib/core/config'
+import fs from 'node:fs'
 import path from 'node:path'
 
 /**
@@ -64,6 +65,26 @@ export function indexFile(relPath: string, title: string, body: string) {
 
 export function removeFromIndex(relPath: string) {
   db.prepare('DELETE FROM doc_fts WHERE path = ?').run(relPath)
+}
+
+/**
+ * 同步后的增量索引：只刷新变更的 md 文件（修改/新增重建，删除移除）。
+ * 避免每次同步都全量重建——全量重建在仓库变大后会阻塞事件循环。
+ */
+export function updateSearchIndex(changedFiles: string[]) {
+  const tx = db.transaction(() => {
+    for (const rel of changedFiles) {
+      if (!/\.mdx?$/i.test(rel)) continue
+      const abs = path.join(config.repoDir, rel)
+      if (fs.existsSync(abs)) {
+        const doc = readDoc(abs)
+        indexFile(rel, doc.title, doc.body)
+      } else {
+        removeFromIndex(rel)
+      }
+    }
+  })
+  tx()
 }
 
 export interface SearchResult {

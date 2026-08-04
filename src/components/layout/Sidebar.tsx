@@ -14,9 +14,9 @@ import {
   Search,
   Trash2,
 } from 'lucide-react'
-import type { TreeNode } from '@/lib/docs'
-import { useToast } from '@/components/Toast'
-import { useDialog } from '@/components/Dialog'
+import type { TreeNode } from '@/lib/content/docs'
+import { useToast } from '@/components/common/Toast'
+import { useDialog } from '@/components/common/Dialog'
 
 interface Props {
   tree: TreeNode[]

@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server'
-import { getSessionUser, gitIdentityOf } from '@/lib/auth'
-import { locateAnnotations, locateForCreate, makeAnnotation, saveNew } from '@/lib/annotations'
-import { resolveSafe, toRel } from '@/lib/docs'
-import { git, withGitLock, withWriteOp } from '@/lib/git'
+import { getSessionUser, gitIdentityOf } from '@/lib/auth/auth'
+import { locateAnnotations, locateForCreate, makeAnnotation, saveNew } from '@/lib/annotations/annotations'
+import { resolveSafe, toRel } from '@/lib/content/docs'
+import { git, withGitLock, withWriteOp } from '@/lib/git/git'
 import fs from 'node:fs'
-import { splitFrontmatter } from '@/lib/frontmatter'
+import { splitFrontmatter } from '@/lib/markdown/frontmatter'
 
 function resolveDocRel(raw: string): string | null {
   const abs = resolveSafe([raw])

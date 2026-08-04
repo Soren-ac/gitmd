@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
-import { getSessionUser } from '@/lib/auth'
-import { resolveSafe, toRel } from '@/lib/docs'
-import { fileLog, withGitLock } from '@/lib/git'
+import { getSessionUser } from '@/lib/auth/auth'
+import { resolveSafe, toRel } from '@/lib/content/docs'
+import { fileLog, withGitLock } from '@/lib/git/git'
 
 export async function GET(_req: Request, ctx: { params: Promise<{ path: string[] }> }) {
   const user = await getSessionUser()

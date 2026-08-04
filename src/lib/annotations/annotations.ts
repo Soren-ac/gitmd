@@ -2,9 +2,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
-import { config } from './config'
-import { git, withGitLock } from './git'
-import { splitFrontmatter } from './frontmatter'
+import { config } from '@/lib/core/config'
+import { git, withGitLock } from '@/lib/git/git'
+import { splitFrontmatter } from '@/lib/markdown/frontmatter'
 
 /** 锚点偏移一律基于正文（去掉 frontmatter），与渲染节点 data-source-* 坐标系一致 */
 function bodyOf(text: string): string {
@@ -175,24 +175,18 @@ function lineOf(offsets: number[], offset: number): number {
   return lo
 }
 
-/** 用 git diff -U0 的 hunk 把 base 版本的偏移平移到当前版本；锚点所在行被修改时返回 null */
-async function translateViaDiff(
-  docRel: string,
-  base: string,
+/**
+ * 用 git diff -U0 的 hunk 把 base 版本的偏移平移到当前版本；锚点所在行被修改时返回 null。
+ * 纯函数：base 内容与 diff 由调用方批量取好，currentLines 由调用方共享。
+ */
+function translateViaDiff(
+  baseContent: string,
+  diffOut: string,
+  currentLines: number[],
   start: number,
   end: number,
-): Promise<{ start: number; end: number } | null> {
-  if (!/^[0-9a-f]{7,40}$/i.test(base)) return null
-  const [baseContentRaw, diffOut] = await withGitLock(async () => {
-    const content = await git.raw(['show', `${base}:${docRel}`]).catch(() => null)
-    const diff = await git.raw(['diff', `${base}..HEAD`, '-U0', '--', docRel]).catch(() => null)
-    return [content, diff] as const
-  })
-  if (baseContentRaw == null || diffOut == null) return null
-  const baseContent = bodyOf(baseContentRaw)
-
+): { start: number; end: number } | null {
   const baseLines = lineStartOffsets(baseContent)
-  const currentLines = lineStartOffsets(readFileText(docRel))
   const startLine = lineOf(baseLines, start)
   const endLine = lineOf(baseLines, end)
   const startCol = start - baseLines[startLine]
@@ -202,8 +196,6 @@ async function translateViaDiff(
   let delta = 0
   const hunkRe = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm
   let m: RegExpExecArray | null
-  let newStartLine = -1
-  let newEndLine = -1
   const seen = new Set<number>()
   while ((m = hunkRe.exec(diffOut))) {
     const oldStart = Number(m[1]) - 1 // 转 0 基
@@ -218,8 +210,8 @@ async function translateViaDiff(
       seen.add(oldStart)
     }
   }
-  newStartLine = startLine + delta
-  newEndLine = endLine + delta
+  const newStartLine = startLine + delta
+  const newEndLine = endLine + delta
   if (newStartLine < 0 || newEndLine >= currentLines.length || newEndLine < newStartLine) return null
   const s = currentLines[newStartLine] + startCol
   const e = currentLines[newEndLine] + endCol
@@ -262,6 +254,27 @@ function fuzzyLocate(
 export async function locateAnnotations(docRel: string): Promise<LocatedAnnotation[]> {
   const content = readFileText(docRel)
   const list = readAnnotations(docRel)
+
+  // 需要 diff 平移的批注按 base 分组：git show/diff 每个 base 只跑一次，且共享一次队列锁，
+  // 避免每条批注各跑一次 git 命令 + 各读一遍文件（N+1）
+  const SHA_RE = /^[0-9a-f]{7,40}$/i
+  const basesNeeded = new Set<string>()
+  for (const a of list) {
+    const exact = content.slice(a.anchor.start, a.anchor.end) === a.anchor.quote
+    if (!exact && SHA_RE.test(a.anchor.base)) basesNeeded.add(a.anchor.base)
+  }
+  const baseData = new Map<string, { baseContent: string; diffOut: string }>()
+  if (basesNeeded.size > 0) {
+    await withGitLock(async () => {
+      for (const base of basesNeeded) {
+        const raw = await git.raw(['show', `${base}:${docRel}`]).catch(() => null)
+        const diff = await git.raw(['diff', `${base}..HEAD`, '-U0', '--', docRel]).catch(() => null)
+        if (raw != null && diff != null) baseData.set(base, { baseContent: bodyOf(raw), diffOut: diff })
+      }
+    })
+  }
+  const currentLines = lineStartOffsets(content)
+
   const out: LocatedAnnotation[] = []
   for (const a of list) {
     let located: { start: number; end: number } | null = null
@@ -270,7 +283,10 @@ export async function locateAnnotations(docRel: string): Promise<LocatedAnnotati
       located = { start: a.anchor.start, end: a.anchor.end }
       status = 'exact'
     } else {
-      const translated = await translateViaDiff(docRel, a.anchor.base, a.anchor.start, a.anchor.end)
+      const data = baseData.get(a.anchor.base)
+      const translated = data
+        ? translateViaDiff(data.baseContent, data.diffOut, currentLines, a.anchor.start, a.anchor.end)
+        : null
       if (translated && content.slice(translated.start, translated.end) === a.anchor.quote) {
         located = translated
         status = 'relocated'

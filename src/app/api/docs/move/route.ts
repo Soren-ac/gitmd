@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server'
 import fs from 'node:fs'
 import path from 'node:path'
-import { getSessionUser, gitIdentityOf } from '@/lib/auth'
-import { resolveSafe, readDoc } from '@/lib/docs'
-import { withWriteOp } from '@/lib/git'
-import { indexFile, removeFromIndex } from '@/lib/search'
-import { splitFrontmatter } from '@/lib/frontmatter'
+import { getSessionUser, gitIdentityOf } from '@/lib/auth/auth'
+import { resolveSafe, readDoc } from '@/lib/content/docs'
+import { withWriteOp } from '@/lib/git/git'
+import { indexFile, removeFromIndex } from '@/lib/search/search'
+import { splitFrontmatter } from '@/lib/markdown/frontmatter'
 
 /** 重命名/移动文档 {from, to} */
 export async function POST(req: Request) {

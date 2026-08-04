@@ -1,8 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
-import { config } from './config'
-import { splitFrontmatter } from './frontmatter'
+import { config } from '@/lib/core/config'
+import { splitFrontmatter } from '@/lib/markdown/frontmatter'
 
 /** 把 URL 路径段解析为仓库内的安全绝对路径；越界返回 null */
 export function resolveSafe(segments: string[]): string | null {

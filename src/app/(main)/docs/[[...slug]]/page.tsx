@@ -5,18 +5,18 @@ import { notFound } from 'next/navigation'
 import { Suspense } from 'react'
 import { parse as parseYaml } from 'yaml'
 import { Clock, FileText, Folder, GitCommitHorizontal, History, Pencil, Tag } from 'lucide-react'
-import { config } from '@/lib/config'
-import { fileLog, isRepoCloned, withGitLock } from '@/lib/git'
-import { readDoc, buildTree, type TreeNode } from '@/lib/docs'
+import { config } from '@/lib/core/config'
+import { fileLog, isRepoCloned, withGitLock } from '@/lib/git/git'
+import { readDoc, buildTree, type TreeNode } from '@/lib/content/docs'
 import {
   createRenderState,
   getRenderPlan,
   renderMarkdownChunk,
   type RenderState,
-} from '@/lib/markdown'
-import RightToc from '@/components/RightToc'
-import DocTracker from '@/components/DocTracker'
-import AnnotationLayer from '@/components/AnnotationLayer'
+} from '@/lib/markdown/markdown'
+import RightToc from '@/components/docs/RightToc'
+import DocTracker from '@/components/layout/DocTracker'
+import AnnotationLayer from '@/components/annotations/AnnotationLayer'
 
 export const dynamic = 'force-dynamic'
 

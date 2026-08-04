@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3'
 import fs from 'node:fs'
-import { config } from './config'
-import { hashPassword } from './auth-core'
+import { config } from '@/lib/core/config'
+import { hashPassword } from '@/lib/auth/auth-core'
 
 export interface UserRow {
   id: number

@@ -18,10 +18,10 @@ import {
   Sigma,
   SquareChartGantt,
 } from 'lucide-react'
-import { joinFrontmatter } from '@/lib/frontmatter'
-import { hydrateMermaidBlocks } from '@/components/Mermaid'
-import { useDialog } from '@/components/Dialog'
-import Wysiwyg from '@/components/Wysiwyg'
+import { joinFrontmatter } from '@/lib/markdown/frontmatter'
+import { hydrateMermaidBlocks } from '@/components/docs/Mermaid'
+import { useDialog } from '@/components/common/Dialog'
+import Wysiwyg from '@/components/editor/Wysiwyg'
 
 interface Props {
   path: string // 仓库相对路径，含 .md
@@ -63,6 +63,50 @@ export default function Editor({ path, docDir, initialFrontmatter, initialBody, 
   useEffect(() => {
     msgRef.current = commitMsg
   }, [commitMsg])
+
+  // ------- 未保存修改提醒 -------
+  // 保存成功后的内容基线；dirty = 当前内容与基线不一致
+  const [saved, setSaved] = useState({ body: initialBody, fm: initialFrontmatter })
+  const dirty = body !== saved.body || frontmatter !== saved.fm
+  const dirtyRef = useRef(false)
+  useEffect(() => {
+    dirtyRef.current = dirty
+  }, [dirty])
+
+  // 关闭/刷新页面前提醒
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (dirtyRef.current) e.preventDefault()
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [])
+
+  // 站内链接导航拦截（含「返回」按钮与顶栏链接）
+  useEffect(() => {
+    function onClick(e: MouseEvent) {
+      if (!dirtyRef.current || e.defaultPrevented) return
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+      const a = (e.target as HTMLElement).closest?.('a[href]') as HTMLAnchorElement | null
+      if (!a) return
+      const href = a.getAttribute('href') ?? ''
+      if (!href.startsWith('/')) return
+      e.preventDefault()
+      e.stopPropagation()
+      void dialog
+        .confirm({
+          title: '离开编辑器？',
+          message: '有未保存的修改，离开后未保存的内容将丢失。',
+          confirmText: '放弃修改并离开',
+          danger: true,
+        })
+        .then((leave) => {
+          if (leave) router.push(href)
+        })
+    }
+    document.addEventListener('click', onClick, true)
+    return () => document.removeEventListener('click', onClick, true)
+  }, [dialog, router])
 
   // ------- 实时预览（防抖） -------
   useEffect(() => {
@@ -124,6 +168,7 @@ export default function Editor({ path, docDir, initialFrontmatter, initialBody, 
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? '保存失败')
       setHash(data.hash)
+      setSaved({ body: bodyRef.current, fm: fmRef.current })
       setCommitMsg('')
       setStatus('已保存并推送')
       setStatusTone('ok')
@@ -352,9 +397,17 @@ export default function Editor({ path, docDir, initialFrontmatter, initialBody, 
               </div>
             )}
           </>
-        ) : (
+      ) : (
           <div className="editor-pane">
-            <Wysiwyg initialValue={body} onChange={setBody} />
+            <Wysiwyg
+              initialValue={body}
+              docDir={docDir}
+              onChange={setBody}
+              onNotify={(m, t) => {
+                setStatus(m)
+                setStatusTone(t ?? 'info')
+              }}
+            />
           </div>
         )}
       </div>

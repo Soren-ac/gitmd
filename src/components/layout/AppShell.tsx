@@ -1,9 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import TopNav from './TopNav'
-import Sidebar from './Sidebar'
-import type { TreeNode } from '@/lib/docs'
+import TopNav from '@/components/layout/TopNav'
+import Sidebar from '@/components/layout/Sidebar'
+import type { TreeNode } from '@/lib/content/docs'
 
 interface Props {
   tree: TreeNode[]

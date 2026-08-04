@@ -1,7 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { cookies } from 'next/headers'
-import { db, type UserRow } from './db'
-import { config } from './config'
+import { db, type UserRow } from '@/lib/core/db'
+import { config } from '@/lib/core/config'
 
 const COOKIE_NAME = 'gitmd_session'
 const SESSION_TTL_MS = 7 * 24 * 3600 * 1000

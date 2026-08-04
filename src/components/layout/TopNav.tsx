@@ -18,8 +18,8 @@ import {
   UserCog,
   XCircle,
 } from 'lucide-react'
-import CommandPalette from './CommandPalette'
-import { useToast } from './Toast'
+import CommandPalette from '@/components/layout/CommandPalette'
+import { useToast } from '@/components/common/Toast'
 
 interface Props {
   user: { username: string; role: string }

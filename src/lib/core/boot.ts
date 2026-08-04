@@ -1,7 +1,7 @@
-import { config } from './config'
-import { triggerSync } from './sync'
-import { isRepoCloned } from './git'
-import { rebuildSearchIndex } from './search'
+import { config } from '@/lib/core/config'
+import { triggerSync } from '@/lib/git/sync'
+import { isRepoCloned } from '@/lib/git/git'
+import { rebuildSearchIndex } from '@/lib/search/search'
 
 const g = globalThis as unknown as { __gitmdBooted?: boolean }
 

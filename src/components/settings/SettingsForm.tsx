@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { CircleAlert, GitCommitHorizontal, Save } from 'lucide-react'
-import { useToast } from '@/components/Toast'
+import { useToast } from '@/components/common/Toast'
 
 interface Props {
   initialName: string

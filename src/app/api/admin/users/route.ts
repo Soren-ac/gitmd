@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
-import { getSessionUser } from '@/lib/auth'
-import { db } from '@/lib/db'
-import { hashPassword } from '@/lib/auth-core'
-import type { UserRow } from '@/lib/db'
+import { getSessionUser } from '@/lib/auth/auth'
+import { db } from '@/lib/core/db'
+import { hashPassword } from '@/lib/auth/auth-core'
+import type { UserRow } from '@/lib/core/db'
 
 export async function GET() {
   const user = await getSessionUser()

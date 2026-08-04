@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { timingSafeEqual } from 'node:crypto'
-import { config } from '@/lib/config'
-import { triggerSync } from '@/lib/sync'
+import { config } from '@/lib/core/config'
+import { triggerSync } from '@/lib/git/sync'
 
 function checkToken(req: Request): boolean {
   if (!config.webhookSecret) return false

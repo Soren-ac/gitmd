@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Clock, CornerDownLeft, FilePlus2, FileText, Loader2, Moon, Search, Settings } from 'lucide-react'
-import { getRecent, type RecentItem } from './DocTracker'
-import { useDialog } from './Dialog'
+import { getRecent, type RecentItem } from '@/components/layout/DocTracker'
+import { useDialog } from '@/components/common/Dialog'
 
 interface Props {
   open: boolean
