@@ -4,7 +4,7 @@ import { updateAnnotation, deleteAnnotation, readAnnotations } from '@/lib/annot
 import { resolveSafe, toRel } from '@/lib/docs'
 import { withWriteOp } from '@/lib/git'
 
-/** 批注操作 {path, id, action: reply|resolve|delete, body?} */
+/** 批注操作 {path, id, action: resolve|delete} */
 export async function POST(req: Request) {
   const user = await getSessionUser()
   if (!user) return NextResponse.json({ error: '未登录' }, { status: 401 })
@@ -15,15 +15,12 @@ export async function POST(req: Request) {
       { status: 403 },
     )
   }
-  const { path: docPath, id, action, body } = await req.json().catch(() => ({}))
+  const { path: docPath, id, action } = await req.json().catch(() => ({}))
   const abs = resolveSafe([String(docPath ?? '')])
   if (!abs || typeof id !== 'string') return NextResponse.json({ error: '参数错误' }, { status: 400 })
   const rel = toRel(abs)
 
-  if (action === 'reply' && (typeof body !== 'string' || !body.trim())) {
-    return NextResponse.json({ error: '回复内容为空' }, { status: 400 })
-  }
-  if (!['reply', 'resolve', 'delete'].includes(String(action))) {
+  if (!['resolve', 'delete'].includes(String(action))) {
     return NextResponse.json({ error: '未知操作' }, { status: 400 })
   }
   const message = `comment: ${action} on ${rel}`
@@ -39,12 +36,7 @@ export async function POST(req: Request) {
   let ok = false
   try {
     await withWriteOp({ message, author: identity }, () => {
-      if (action === 'reply') {
-        ok = updateAnnotation(rel, id, (a) => {
-          // 回复只是讨论的一部分，不改变该批注的 resolved 状态
-          a.comments.push({ author: identity.name, body: body.trim().slice(0, 2000), at: new Date().toISOString() })
-        })
-      } else if (action === 'resolve') {
+      if (action === 'resolve') {
         ok = updateAnnotation(rel, id, (a) => {
           a.resolved = !a.resolved
         })

@@ -32,8 +32,8 @@ function mergedEnv(extra: Record<string, string>): Record<string, string> {
   const env: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) {
     if (typeof v !== 'string') continue
-    // simple-git 出于安全默认禁止 EDITOR 类变量；平台无需交互式编辑器
-    if (k === 'EDITOR' || k === 'VISUAL' || k === 'GIT_EDITOR') continue
+    // simple-git 出于安全默认禁止 EDITOR/PAGER 类变量；平台无需交互式编辑器与分页器
+    if (k === 'EDITOR' || k === 'VISUAL' || k === 'GIT_EDITOR' || k === 'GIT_PAGER' || k === 'PAGER') continue
     env[k] = v
   }
   return { GIT_TERMINAL_PROMPT: '0', ...env, ...extra }

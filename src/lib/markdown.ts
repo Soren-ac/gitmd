@@ -111,6 +111,8 @@ const rehypeCodeBlock: Plugin<[Ctx], Root> = (ctx) => (tree) => {
     const code = node.children[0]
     if (!code || code.type !== 'element' || code.tagName !== 'code') return
     const cls = (code.properties?.className as string[] | undefined) ?? []
+    // math 块交给 rehype-katex 整体替换为公式，不要包成深色代码面板（黑框嵌白底公式很违和）
+    if (cls.includes('language-math')) return
     const lang = (cls.find((c) => c.startsWith('language-')) ?? '').replace('language-', '') || 'text'
 
     const copyEl: Element =

@@ -28,9 +28,18 @@ interface SelInfo {
   estStart: number
   estEnd: number
   section: string
+  /** 从批注气泡里"追加批注"时，提交成功后重新打开原气泡 */
+  reopen?: { start: number; end: number; x: number; y: number }
 }
 
 const CHANGED_EVENT = 'gitmd-annotations-changed'
+
+/** 视口 rect → 文档绝对坐标：气泡用 position:absolute，随页面滚动始终贴在锚点文字附近 */
+function docPos(rect: DOMRect, popoverWidth: number) {
+  const maxX = window.scrollX + window.innerWidth - popoverWidth - 8
+  const x = Math.max(window.scrollX + 8, Math.min(rect.left + window.scrollX, maxX))
+  return { x, y: rect.bottom + window.scrollY + 8 }
+}
 
 export default function AnnotationLayer({ doc }: { doc: string }) {
   const toast = useToast()
@@ -39,7 +48,6 @@ export default function AnnotationLayer({ doc }: { doc: string }) {
   const [composing, setComposing] = useState(false)
   const [body, setBody] = useState('')
   const [openRange, setOpenRange] = useState<{ start: number; end: number; x: number; y: number } | null>(null)
-  const [replyDraft, setReplyDraft] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
   const [me, setMe] = useState('')
   const rootRef = useRef<HTMLDivElement>(null)
@@ -164,15 +172,6 @@ export default function AnnotationLayer({ doc }: { doc: string }) {
       const quote = selection.toString().trim()
       if (!quote || quote.length > 500) return
 
-      // 已有批注的文字不允许重叠批注
-      const asEl = (n: Node): Element | null => (n instanceof Element ? n : n.parentElement)
-      const startMark = asEl(range.startContainer)?.closest('mark.annotation-mark')
-      const endMark = asEl(range.endContainer)?.closest('mark.annotation-mark')
-      if (startMark || endMark) {
-        toast.push('info', '该段文字已有批注，点击虚线部分直接查看')
-        return
-      }
-
       // 估计源码范围：就近取带 data-source-* 的祖先
       const srcEl = (n: Node | null): HTMLElement | null => {
         let el: HTMLElement | null = n instanceof HTMLElement ? n : n?.parentElement ?? null
@@ -191,8 +190,7 @@ export default function AnnotationLayer({ doc }: { doc: string }) {
       const rect = range.getBoundingClientRect()
       setSel({
         quote,
-        x: Math.min(rect.left, window.innerWidth - 340),
-        y: rect.bottom + 8,
+        ...docPos(rect, 340),
         estStart: Number(sEl.dataset.sourceStart),
         estEnd: Number(eEl.dataset.sourceEnd),
         section,
@@ -202,23 +200,30 @@ export default function AnnotationLayer({ doc }: { doc: string }) {
     }
     document.addEventListener('mouseup', onMouseUp)
     return () => document.removeEventListener('mouseup', onMouseUp)
-  }, [article, toast])
+  }, [article])
 
   /* ---------- 点击虚线标记 → 批注气泡 ---------- */
   useEffect(() => {
     function onClick(e: MouseEvent) {
       const mark = (e.target as HTMLElement).closest?.('mark.annotation-mark') as HTMLElement | null
       if (mark) {
+        // 在已批注文字上拖选时浏览器会补发 click；有选区说明正要追加批注，不要打开气泡或清掉新建入口
+        const selection = window.getSelection()
+        if (selection && !selection.isCollapsed) return
         const rect = mark.getBoundingClientRect()
         setOpenRange({
           start: Number(mark.dataset.start),
           end: Number(mark.dataset.end),
-          x: Math.min(rect.left, window.innerWidth - 380),
-          y: rect.bottom + 8,
+          ...docPos(rect, 380),
         })
         setSel(null)
       } else if (!(e.target as HTMLElement).closest?.('.annotation-popover')) {
         setOpenRange(null)
+        // 点空白处取消选区后，悬浮的「批注」入口一并消失（点在入口自身或气泡内除外）
+        if (!(e.target as HTMLElement).closest?.('.annotation-hint')) {
+          const selection = window.getSelection()
+          if (!selection || selection.isCollapsed) setSel(null)
+        }
       }
     }
     document.addEventListener('click', onClick)
@@ -245,6 +250,7 @@ export default function AnnotationLayer({ doc }: { doc: string }) {
     setSubmitting(false)
     if (res.ok) {
       toast.push('success', '批注已提交')
+      if (sel.reopen) setOpenRange(sel.reopen)
       setSel(null)
       setBody('')
       window.getSelection()?.removeAllRanges()
@@ -254,11 +260,11 @@ export default function AnnotationLayer({ doc }: { doc: string }) {
     }
   }
 
-  async function action(id: string, act: 'reply' | 'resolve' | 'delete', text?: string) {
+  async function action(id: string, act: 'resolve' | 'delete') {
     const res = await fetch('/api/annotations/action', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: doc, id, action: act, body: text }),
+      body: JSON.stringify({ path: doc, id, action: act }),
     })
     const data = await res.json().catch(() => ({}))
     if (res.ok) {
@@ -275,6 +281,27 @@ export default function AnnotationLayer({ doc }: { doc: string }) {
         .filter((a) => a.located && a.located.start <= openRange.end && a.located.end >= openRange.start)
         .sort((a, b) => a.created_at.localeCompare(b.created_at))
     : []
+
+  /** 从气泡里对同一段文字追加一条独立批注 */
+  function startAppend() {
+    if (!openRange) return
+    const target =
+      openAnns.find((a) => a.located && a.located.start === openRange.start && a.located.end === openRange.end) ??
+      openAnns[0]
+    if (!target) return
+    setSel({
+      quote: target.anchor.quote,
+      x: openRange.x,
+      y: openRange.y,
+      estStart: target.located?.start ?? 0,
+      estEnd: target.located?.end ?? 0,
+      section: target.anchor.section,
+      reopen: { ...openRange },
+    })
+    setComposing(true)
+    setBody('')
+    setOpenRange(null)
+  }
 
   return (
     <div ref={rootRef}>
@@ -343,26 +370,13 @@ export default function AnnotationLayer({ doc }: { doc: string }) {
                   <span className="annotation-comment-body">{c.body}</span>
                 </div>
               ))}
-              <div className="annotation-reply-row">
-                <input
-                  className="input annotation-reply-input"
-                  placeholder="回复…"
-                  value={replyDraft[a.id] ?? ''}
-                  onChange={(e) => setReplyDraft({ ...replyDraft, [a.id]: e.target.value })}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && (replyDraft[a.id] ?? '').trim()) {
-                      action(a.id, 'reply', replyDraft[a.id])
-                      setReplyDraft({ ...replyDraft, [a.id]: '' })
-                    }
-                  }}
-                />
+              <div className="annotation-card-actions">
                 <button
-                  className="btn btn-icon"
-                  aria-label={a.resolved ? '重新打开' : '标记已解决'}
-                  title={a.resolved ? '重新打开' : '标记已解决'}
+                  className="btn btn-sm btn-ghost"
                   onClick={() => action(a.id, 'resolve')}
                 >
-                  {a.resolved ? <RotateCcw size={14} /> : <Check size={14} />}
+                  {a.resolved ? <RotateCcw size={13} /> : <Check size={13} />}
+                  {a.resolved ? '重新打开' : '标记解决'}
                 </button>
                 {a.author === me && (
                   <button
@@ -377,6 +391,10 @@ export default function AnnotationLayer({ doc }: { doc: string }) {
               </div>
             </div>
           ))}
+          <button className="btn btn-sm btn-ghost annotation-append-btn" onClick={startAppend}>
+            <MessageSquarePlus size={13} />
+            追加批注
+          </button>
         </div>
       )}
     </div>
