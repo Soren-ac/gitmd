@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import CodeMirror from '@uiw/react-codemirror'
 import { markdown } from '@codemirror/lang-markdown'
-import type { EditorView } from '@codemirror/view'
+import { EditorView } from '@codemirror/view'
 import {
   ArrowLeft,
   Check,
@@ -13,12 +13,13 @@ import {
   Columns2,
   Eye,
   FileText,
+  ImageDown,
   PenLine,
   Save,
   Sigma,
   SquareChartGantt,
 } from 'lucide-react'
-import { joinFrontmatter } from '@/lib/markdown/frontmatter'
+import { joinFrontmatter, splitFrontmatter } from '@/lib/markdown/frontmatter'
 import { hydrateMermaidBlocks } from '@/components/docs/Mermaid'
 import { useDialog } from '@/components/common/Dialog'
 import Wysiwyg from '@/components/editor/Wysiwyg'
@@ -45,6 +46,9 @@ export default function Editor({ path, docDir, initialFrontmatter, initialBody, 
   const [view, setView] = useState<View>('split')
   const [previewHtml, setPreviewHtml] = useState('')
   const [saving, setSaving] = useState(false)
+  const [localizing, setLocalizing] = useState(false)
+  // 外链图片转存改写内容后自增，强制 Wysiwyg 重挂载以显示新内容（Crepe 仅挂载时读 initialValue）
+  const [gen, setGen] = useState(0)
   const [status, setStatus] = useState('')
   const [statusTone, setStatusTone] = useState<'ok' | 'err' | 'info'>('info')
   const [commitMsg, setCommitMsg] = useState('')
@@ -168,10 +172,24 @@ export default function Editor({ path, docDir, initialFrontmatter, initialBody, 
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? '保存失败')
       setHash(data.hash)
-      setSaved({ body: bodyRef.current, fm: fmRef.current })
+      if (typeof data.content === 'string' && data.content !== content) {
+        // 服务端转存外链图片改写了内容：同步编辑器与未保存基线
+        const split = splitFrontmatter(data.content)
+        setFrontmatter(split.frontmatter)
+        setBody(split.body)
+        setSaved({ body: split.body, fm: split.frontmatter })
+        setGen((g) => g + 1)
+      } else {
+        setSaved({ body: bodyRef.current, fm: fmRef.current })
+      }
       setCommitMsg('')
-      setStatus('已保存并推送')
-      setStatusTone('ok')
+      const imgs = data.images as { localized: number; failed: number } | undefined
+      setStatus(
+        '已保存并推送' +
+          (imgs?.localized ? `（转存 ${imgs.localized} 张外链图片）` : '') +
+          (imgs?.failed ? `（${imgs.failed} 张外链图下载失败，已保留原链接）` : ''),
+      )
+      setStatusTone(imgs?.failed ? 'err' : 'ok')
       router.refresh()
     } catch (err) {
       setStatus('保存失败：' + (err instanceof Error ? err.message : String(err)))
@@ -220,6 +238,46 @@ export default function Editor({ path, docDir, initialFrontmatter, initialBody, 
       view.focus()
     } else {
       setBody((b) => b + snippet)
+    }
+  }
+
+  // ------- 外链图片转存（图片立即提交，文档内容替换编辑器缓冲后由用户保存） -------
+  async function localizeImages() {
+    if (saving || localizing) return
+    setLocalizing(true)
+    setStatus('正在转存外链图片…')
+    setStatusTone('info')
+    const content = joinFrontmatter(fmRef.current, bodyRef.current)
+    try {
+      const res = await fetch('/api/assets/localize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error ?? '转存失败')
+      const failedCount = Array.isArray(data.failed) ? data.failed.length : 0
+      if (!data.localized && !failedCount) {
+        setStatus('没有需要转存的外链图片')
+        setStatusTone('ok')
+        return
+      }
+      if (typeof data.content === 'string' && data.content !== content) {
+        const split = splitFrontmatter(data.content)
+        setFrontmatter(split.frontmatter)
+        setBody(split.body)
+        setGen((g) => g + 1)
+      }
+      setStatus(
+        `已转存 ${data.localized} 张外链图片，请保存文档` +
+          (failedCount ? `（${failedCount} 张失败：${data.failed.map((f: { url: string }) => f.url).join('、')}）` : ''),
+      )
+      setStatusTone(failedCount ? 'err' : 'ok')
+    } catch (err) {
+      setStatus('转存失败：' + (err instanceof Error ? err.message : String(err)))
+      setStatusTone('err')
+    } finally {
+      setLocalizing(false)
     }
   }
 
@@ -272,6 +330,16 @@ export default function Editor({ path, docDir, initialFrontmatter, initialBody, 
             </button>
           </>
         )}
+
+        <button
+          className="btn btn-ghost btn-sm"
+          onClick={localizeImages}
+          disabled={localizing || saving}
+          title="把文档中的外链图片下载到仓库 assets/ 并替换为本地路径（图片立即提交，文档需保存）"
+        >
+          {localizing ? <span className="spinner" /> : <ImageDown size={13} />}
+          {localizing ? '转存中' : '转存外链图'}
+        </button>
 
         <div className="segmented" role="tablist" aria-label="编辑模式">
           <button
@@ -376,7 +444,7 @@ export default function Editor({ path, docDir, initialFrontmatter, initialBody, 
                 <CodeMirror
                   value={body}
                   onChange={setBody}
-                  extensions={[markdown()]}
+                  extensions={[markdown(), EditorView.lineWrapping]}
                   onCreateEditor={(view) => {
                     viewRef.current = view
                   }}
@@ -400,6 +468,7 @@ export default function Editor({ path, docDir, initialFrontmatter, initialBody, 
       ) : (
           <div className="editor-pane">
             <Wysiwyg
+              key={gen}
               initialValue={body}
               docDir={docDir}
               onChange={setBody}

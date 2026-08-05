@@ -314,6 +314,7 @@ export default function AnnotationLayer({ doc }: { doc: string }) {
     return (
       <div key={a.id} className={`annotation-card ${a.resolved ? 'resolved' : ''}`}>
         <div className="annotation-card-head">
+          <span className="annotation-avatar">{(a.author || '?').trim().charAt(0).toUpperCase() || '?'}</span>
           <span className="annotation-author">{a.author}</span>
           <span className="annotation-time">{new Date(a.created_at).toLocaleDateString('zh-CN')}</span>
           {a.status === 'relocated' && <span className="ann-badge">已移动</span>}
@@ -367,6 +368,15 @@ export default function AnnotationLayer({ doc }: { doc: string }) {
       {/* 新建批注输入框 */}
       {sel && composing && (
         <div className="annotation-popover" style={{ left: sel.x, top: sel.y }}>
+          <div className="annotation-popover-head">
+            <span className="annotation-popover-title">
+              <MessageSquarePlus size={13} />
+              添加批注
+            </span>
+            <button className="btn btn-icon" style={{ width: 22, height: 22 }} aria-label="关闭" onClick={() => setSel(null)}>
+              <X size={13} />
+            </button>
+          </div>
           <div className="annotation-quote">“{sel.quote.length > 60 ? sel.quote.slice(0, 60) + '…' : sel.quote}”</div>
           <textarea
             autoFocus
@@ -381,6 +391,7 @@ export default function AnnotationLayer({ doc }: { doc: string }) {
             }}
           />
           <div className="annotation-actions">
+            <span className="annotation-kbd-hint">⌘/Ctrl + Enter 提交</span>
             <button className="btn btn-sm btn-ghost" onClick={() => setSel(null)}>
               取消
             </button>
@@ -396,12 +407,15 @@ export default function AnnotationLayer({ doc }: { doc: string }) {
       {openRange && openAnns.length > 0 && (
         <div className="annotation-popover annotation-thread" style={{ left: openRange.x, top: openRange.y }}>
           <div className="annotation-popover-head">
-            <span>{openAnns.length} 条批注</span>
+            <span className="annotation-popover-title">
+              <MessageSquarePlus size={13} />
+              {openAnns.length} 条批注
+            </span>
             <button className="btn btn-icon" style={{ width: 22, height: 22 }} aria-label="关闭" onClick={() => setOpenRange(null)}>
               <X size={13} />
             </button>
           </div>
-          {openAnns.map(renderCard)}
+          <div className="annotation-thread-body">{openAnns.map(renderCard)}</div>
           <button className="btn btn-sm btn-ghost annotation-append-btn" onClick={startAppend}>
             <MessageSquarePlus size={13} />
             追加批注
@@ -419,12 +433,15 @@ export default function AnnotationLayer({ doc }: { doc: string }) {
       {orphanOpen && orphans.length > 0 && (
         <div className="annotation-popover annotation-thread annotation-orphans">
           <div className="annotation-popover-head">
-            <span>失效批注（原文已删除或大改）</span>
+            <span className="annotation-popover-title">
+              <MessageSquareWarning size={13} />
+              失效批注（原文已删除或大改）
+            </span>
             <button className="btn btn-icon" style={{ width: 22, height: 22 }} aria-label="关闭" onClick={() => setOrphanOpen(false)}>
               <X size={13} />
             </button>
           </div>
-          {orphans.map(renderCard)}
+          <div className="annotation-thread-body">{orphans.map(renderCard)}</div>
         </div>
       )}
     </div>

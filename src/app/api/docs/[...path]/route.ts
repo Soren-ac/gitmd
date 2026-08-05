@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { getSessionUser, gitIdentityOf } from '@/lib/auth/auth'
 import { resolveSafe, readDoc, contentHash, toRel } from '@/lib/content/docs'
+import { localizeExternalImages, type LocalizeResult } from '@/lib/content/images'
 import { withWriteOp, ConflictError } from '@/lib/git/git'
 import { indexFile, removeFromIndex } from '@/lib/search/search'
 import { splitFrontmatter } from '@/lib/markdown/frontmatter'
@@ -75,10 +76,21 @@ export async function PUT(req: Request, ctx: Ctx) {
     )
   }
 
+  // 外链图片转存：网络下载放在串行队列外，避免阻塞其他写操作；
+  // 转存异常不阻断保存（保留原始外链）
+  let loc: LocalizeResult | null = null
+  try {
+    loc = await localizeExternalImages(content)
+  } catch (err) {
+    console.error('[gitmd] 外链图片转存异常:', err)
+  }
+  const finalContent = loc?.content ?? content
+  const imgNote = loc && loc.localized.length > 0 ? `（转存 ${loc.localized.length} 张外链图片）` : ''
+
   try {
     const { head } = await withWriteOp(
       {
-        message: sanitizeMessage(message, `docs: ${before.exists ? 'update' : 'create'} ${resolved.rel}`),
+        message: sanitizeMessage(message, `docs: ${before.exists ? 'update' : 'create'} ${resolved.rel}`) + imgNote,
         author: identity,
       },
       async () => {
@@ -88,13 +100,28 @@ export async function PUT(req: Request, ctx: Ctx) {
         if (nowHash !== baseHash) {
           throw new ConflictError('文档已被他人修改', now.content, nowHash)
         }
+        for (const f of loc?.files ?? []) {
+          const abs = resolveSafe([f.rel])
+          if (!abs || fs.existsSync(abs)) continue // 内容哈希同名即同内容
+          fs.mkdirSync(path.dirname(abs), { recursive: true })
+          fs.writeFileSync(abs, f.buf)
+        }
         fs.mkdirSync(path.dirname(resolved.abs), { recursive: true })
-        fs.writeFileSync(resolved.abs, content, 'utf8')
+        fs.writeFileSync(resolved.abs, finalContent, 'utf8')
       },
     )
-    const { body } = splitFrontmatter(content)
-    indexFile(resolved.rel, extractTitle(content, path.basename(resolved.rel)), body)
-    return NextResponse.json({ ok: true, head, hash: contentHash(content) })
+    const { body } = splitFrontmatter(finalContent)
+    indexFile(resolved.rel, extractTitle(finalContent, path.basename(resolved.rel)), body)
+    return NextResponse.json({
+      ok: true,
+      head,
+      hash: contentHash(finalContent),
+      // 转存改写了内容时回传，前端同步编辑器状态
+      ...(finalContent !== content ? { content: finalContent } : {}),
+      ...(loc && (loc.localized.length > 0 || loc.failed.length > 0)
+        ? { images: { localized: loc.localized.length, failed: loc.failed.length } }
+        : {}),
+    })
   } catch (err) {
     if (err instanceof ConflictError) {
       return NextResponse.json(

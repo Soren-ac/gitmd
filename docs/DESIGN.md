@@ -66,15 +66,17 @@ webhook / 轮询 / 手动触发
 前端保存 (content + baseHash)
   → 服务端校验会话
   → 计算当前文件哈希，与 baseHash 不一致 → 409 {conflict: true, current, base}
+  → 外链图片转存（下载在队列外并发进行，失败保留原链接不阻断保存）
   → 入 RepoQueue（串行，与同步互斥）
   → 二次校验哈希（队列等待期间可能变化）
-  → 写文件 → git add → git commit
+  → 写转存图片 + 写文件 → git add → git commit
        committer = "gitmd-bot <gitmd@local>"
        author    = "<用户名> <用户名@gitmd.local>"
   → git push
       失败 → fetch + rebase origin/branch → 再 push（最多重试 2 次）
       rebase 冲突 → rebase --abort → reset --hard origin/branch → 返回 409
   → 更新该文件 FTS 索引
+  → 响应回传改写后的 content（有转存时），前端同步编辑器状态
 ```
 
 ### 3.3 为什么需要 RepoQueue
@@ -129,6 +131,7 @@ CREATE TABLE sync_state (
 | POST | /api/preview | 渲染 md 文本为 HTML（编辑器实时预览） |
 | GET | /api/assets/[...path] | 读取仓库内静态资源（图片等） |
 | POST | /api/assets | 上传图片 → 写入 assets/ 并 commit/push |
+| POST | /api/assets/localize | 转存正文中的外链图片 → assets/ 并 commit/push，返回重写后的正文 |
 | GET | /api/search?q= | FTS5 全文搜索 |
 | GET | /api/history/[...path] | 文件 git log |
 | GET | /api/diff?path=&from=&to= | 两版本 diff |
@@ -166,6 +169,7 @@ remark-parse → remark-gfm → remark-frontmatter → remark-math
 - frontmatter 不进正文，编辑器中用独立面板编辑
 - 内容来自可信内部仓库，不做 sanitize（如需对外开放再补 rehype-sanitize + 自定义 schema）
 - 相对路径图片重写为 `/api/assets/<path>`
+- 外链图片在保存时自动转存（`src/lib/content/images.ts`）：mdast 收集行内/HTML/引用式三种图片引用，下载校验（仅 http(s)、image/* content-type 或魔数嗅探、10MB 上限、15s 超时），按内容哈希命名 `assets/ext-<hash>.<ext>` 天然去重，与文档同一 commit 提交；下载失败保留原链接并在响应中报告。下载走 undici fetch；代理由启动钩子安装的 `EnvHttpProxyAgent` 全局调度器统一处理（`HTTP(S)_PROXY` / `NO_PROXY`，Node 全局 fetch 默认不读代理变量）。编辑器另有「转存外链图」按钮走 `/api/assets/localize` 手动触发
 
 ## 8. 批注系统
 

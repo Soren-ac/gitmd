@@ -4,7 +4,7 @@ import { getSessionUser, gitIdentityOf } from '@/lib/auth/auth'
 import { resolveSafe } from '@/lib/content/docs'
 import { withWriteOp } from '@/lib/git/git'
 
-const ALLOWED_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico'])
+const ALLOWED_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.svg', '.bmp', '.ico'])
 
 /** 上传图片 → assets/ 目录并提交推送 */
 export async function POST(req: Request) {
