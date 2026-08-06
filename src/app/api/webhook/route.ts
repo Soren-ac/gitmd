@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server'
 import { timingSafeEqual } from 'node:crypto'
-import { config } from '@/lib/core/config'
+import { getWebhookSecret } from '@/lib/core/db'
 import { triggerSync } from '@/lib/git/sync'
 
 function checkToken(req: Request): boolean {
-  if (!config.webhookSecret) return false
+  // 管理界面配置（DB）优先，其次 WEBHOOK_SECRET 环境变量
+  const secret = getWebhookSecret()
+  if (!secret) return false
   const url = new URL(req.url)
   const token =
     url.searchParams.get('token') ??
@@ -12,7 +14,7 @@ function checkToken(req: Request): boolean {
     req.headers.get('x-codehub-token') ??
     ''
   const a = Buffer.from(token)
-  const b = Buffer.from(config.webhookSecret)
+  const b = Buffer.from(secret)
   return a.length === b.length && timingSafeEqual(a, b)
 }
 

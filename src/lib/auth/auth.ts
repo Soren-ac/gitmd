@@ -40,6 +40,9 @@ export function verifySessionToken(token: string): number | null {
 
 export type SessionUser = Pick<UserRow, 'id' | 'username' | 'role' | 'git_name' | 'git_email'>
 
+// 预编译语句：会话查询在每个请求的热路径上，避免重复解析 SQL
+const sessionStmt = db.prepare('SELECT id, username, role, git_name, git_email FROM users WHERE id = ?')
+
 /** 用户配置的 git author 身份；未配置返回 null（写操作必须拒绝） */
 export function gitIdentityOf(user: SessionUser): { name: string; email: string } | null {
   const name = user.git_name?.trim()
@@ -55,9 +58,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   if (!token) return null
   const uid = verifySessionToken(token)
   if (uid == null) return null
-  const user = db
-    .prepare('SELECT id, username, role, git_name, git_email FROM users WHERE id = ?')
-    .get(uid) as SessionUser | undefined
+  const user = sessionStmt.get(uid) as SessionUser | undefined
   return user ?? null
 }
 

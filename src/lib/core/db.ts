@@ -32,6 +32,10 @@ function createDb(): Database.Database {
       last_status  TEXT,
       last_error   TEXT
     );
+    CREATE TABLE IF NOT EXISTS settings (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
     CREATE VIRTUAL TABLE IF NOT EXISTS doc_fts USING fts5(
       path UNINDEXED,
       title,
@@ -61,17 +65,48 @@ function createDb(): Database.Database {
 const g = globalThis as unknown as { __gitmdDb?: Database.Database }
 export const db: Database.Database = (g.__gitmdDb ??= createDb())
 
-export function updateSyncState(status: 'ok' | 'error', head: string | null, error?: string) {
-  db.prepare(
+// 高频语句预编译（会话/设置/同步状态）
+const stmts = {
+  getSetting: db.prepare('SELECT value FROM settings WHERE key = ?'),
+  setSetting: db.prepare(
+    'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+  ),
+  deleteSetting: db.prepare('DELETE FROM settings WHERE key = ?'),
+  getSyncState: db.prepare('SELECT * FROM sync_state WHERE id = 1'),
+  upsertSyncState: db.prepare(
     `INSERT INTO sync_state (id, last_head, last_sync_at, last_status, last_error)
      VALUES (1, ?, datetime('now'), ?, ?)
      ON CONFLICT(id) DO UPDATE SET last_head=excluded.last_head, last_sync_at=excluded.last_sync_at,
        last_status=excluded.last_status, last_error=excluded.last_error`,
-  ).run(head, status, error ?? null)
+  ),
+}
+
+export function updateSyncState(status: 'ok' | 'error', head: string | null, error?: string) {
+  stmts.upsertSyncState.run(head, status, error ?? null)
 }
 
 export function getSyncState() {
-  return db.prepare('SELECT * FROM sync_state WHERE id = 1').get() as
+  return stmts.getSyncState.get() as
     | { last_head: string | null; last_sync_at: string | null; last_status: string | null; last_error: string | null }
     | undefined
+}
+
+/* ---------- 平台级配置（管理界面可改，优先级高于同名环境变量） ---------- */
+
+export function getSetting(key: string): string | null {
+  const row = stmts.getSetting.get(key) as { value: string } | undefined
+  return row?.value ?? null
+}
+
+export function setSetting(key: string, value: string) {
+  stmts.setSetting.run(key, value)
+}
+
+export function deleteSetting(key: string) {
+  stmts.deleteSetting.run(key)
+}
+
+/** webhook 验签密钥：界面配置（DB）优先，其次 WEBHOOK_SECRET 环境变量 */
+export function getWebhookSecret(): string {
+  return getSetting('webhook_secret') ?? config.webhookSecret
 }

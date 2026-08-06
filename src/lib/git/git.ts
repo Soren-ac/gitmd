@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import simpleGit, { type SimpleGit } from 'simple-git'
 import { config } from '@/lib/core/config'
+import { invalidateTreeCache } from '@/lib/content/docs'
 
 export class ConflictError extends Error {
   constructor(
@@ -73,6 +74,7 @@ export async function ensureCloned(): Promise<void> {
   await simpleGit().env(mergedEnv(extra)).clone(config.repoUrl, tmp, ['--branch', config.branch, '--single-branch'])
   fs.rmSync(config.repoDir, { recursive: true, force: true })
   fs.renameSync(tmp, config.repoDir)
+  invalidateTreeCache()
 }
 
 export interface SyncResult {
@@ -97,6 +99,7 @@ export async function syncRepo(): Promise<SyncResult> {
     changedFiles = out.split('\n').filter(Boolean)
   }
   await git.reset(['--hard', `origin/${config.branch}`])
+  invalidateTreeCache()
   return { changed: true, changedFiles, head: remote }
 }
 
@@ -135,6 +138,7 @@ async function commitAndPush(
     const name = sanitizeAuthorField(author.name)
     const email = sanitizeAuthorField(author.email)
     await git.raw(['commit', '-m', message, `--author=${name} <${email}>`])
+    invalidateTreeCache()
   }
   // 即使本次没有新提交，本地也可能因上次 push 失败而领先远端——必须与远端对齐后再返回
   const local = await git.revparse(['HEAD'])

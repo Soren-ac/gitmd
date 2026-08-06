@@ -83,6 +83,13 @@ webhook / 轮询 / 手动触发
 
 `reset --hard` 会把本地"已 commit 未 push"的提交冲掉。把同步和编辑都放进同一个 per-repo 串行队列，两类操作永不相交，这个窗口被彻底消除。单实例部署用内存 promise 链即可，无需外部队列。
 
+### 3.4 性能要点
+
+- **文件树缓存**：`buildTree` 全量遍历仓库是 I/O 密集操作，结果按进程缓存（`getDocTree`），仅在写操作提交（`commitAndPush` 有 staged 变更）、同步 reset、初始克隆后失效
+- **预编译 SQL**：会话查询（每请求一次）、settings、sync_state 等高频语句在模块加载时 prepare 一次复用
+- **静态资源缓存**：`/api/assets` 对内容哈希命名的转存图片（`ext-<hash>.<ext>`）返回 `private, max-age=31536000, immutable`，仓库内其余路径保持 60s 短缓存
+- 渲染缓存与分块流式渲染见第 7 节
+
 ## 4. 数据库表结构（SQLite）
 
 ```sql
@@ -109,6 +116,12 @@ CREATE TABLE sync_state (
   last_sync_at TEXT,
   last_status  TEXT,                    -- ok | error
   last_error   TEXT
+);
+
+-- 平台级配置（管理界面可改）：webhook_secret 等，优先级高于同名环境变量
+CREATE TABLE settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
 );
 ```
 
@@ -140,6 +153,9 @@ CREATE TABLE sync_state (
 | POST | /api/annotations/action | 标记解决 / 重新打开 / 删除（仅本人） |
 | POST | /api/webhook?token= | CodeHub webhook，验签后触发同步 |
 | POST | /api/sync | 手动同步（admin） |
+| GET | /api/admin/config | 读平台配置（webhook 密钥及来源，admin） |
+| PUT | /api/admin/config | 保存/清除 webhook 密钥（空串=回退环境变量，admin） |
+| POST | /api/admin/config | {action:'generate'} 随机生成密钥（admin） |
 | GET/POST | /api/admin/users | 用户列表 / 新建用户（admin） |
 | PUT/DELETE | /api/admin/users/[id] | 改密码（本人或 admin）/ 删除用户（admin，不可删自己） |
 
@@ -209,7 +225,7 @@ remark-parse → remark-gfm → remark-frontmatter → remark-math
 
 - 会话：httpOnly + SameSite=Lax cookie，HMAC-SHA256 签名，7 天过期，`AUTH_SECRET` 环境变量
 - 密码：node:crypto scrypt（salt 16B），timingSafeEqual 比对
-- webhook：`?token=` 或 `X-CodeHub-Token` 头与 `WEBHOOK_SECRET` 比对
+- webhook：`?token=` 或 `X-CodeHub-Token` 头与密钥比对（timingSafeEqual）；密钥可在「平台管理 → Webhook」界面配置（存 settings 表），优先于 `WEBHOOK_SECRET` 环境变量
 - middleware 全站鉴权，仅放行 /login、/api/auth/*、/api/webhook
 - 图片/资源接口同样要求登录
 - git 凭据：SSH deploy key 挂载到容器，不出现在代码和日志中

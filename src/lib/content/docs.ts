@@ -58,6 +58,22 @@ export function buildTree(dir: string = config.repoDir): TreeNode[] {
   return nodes
 }
 
+/* 文件树缓存：遍历整个仓库目录是 I/O 密集操作，而树只在写操作（编辑/移动/删除/
+ * 上传，全部经 withWriteOp）或同步（reset --hard/克隆）后才会变化，由这两处显式失效。 */
+let treeCache: TreeNode[] | null = null
+
+export function invalidateTreeCache() {
+  treeCache = null
+}
+
+/** 带缓存的文件树；仓库未克隆时返回空树且不缓存 */
+export function getDocTree(): TreeNode[] {
+  if (treeCache) return treeCache
+  if (!fs.existsSync(path.join(config.repoDir, '.git'))) return []
+  treeCache = buildTree()
+  return treeCache
+}
+
 export function extractTitle(content: string, fallback: string): string {
   const { frontmatter, body } = splitFrontmatter(content)
   const fmTitle = frontmatter.match(/^title:\s*['"]?(.+?)['"]?\s*$/m)

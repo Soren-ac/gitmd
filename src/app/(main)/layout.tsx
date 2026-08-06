@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { getSessionUser } from '@/lib/auth/auth'
-import { buildTree } from '@/lib/content/docs'
+import { getDocTree } from '@/lib/content/docs'
 import { isRepoCloned } from '@/lib/git/git'
 import { ToastProvider } from '@/components/common/Toast'
 import { DialogProvider } from '@/components/common/Dialog'
@@ -13,7 +13,7 @@ export default async function MainLayout({ children }: { children: React.ReactNo
   if (!user) redirect('/login')
 
   const repoReady = isRepoCloned()
-  const tree = repoReady ? buildTree() : []
+  const tree = repoReady ? getDocTree() : []
 
   return (
     <ToastProvider>
