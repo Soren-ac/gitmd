@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react'
 import { Check, Copy } from 'lucide-react'
+import { copyText } from '@/lib/clipboard'
 
 /** 代码块复制按钮：向上找到所在 figure 的 pre 文本复制 */
 export default function CopyBtn() {
@@ -11,12 +12,9 @@ export default function CopyBtn() {
   async function copy() {
     const figure = ref.current?.closest('figure.code-block')
     const text = figure?.querySelector('pre')?.innerText ?? ''
-    try {
-      await navigator.clipboard.writeText(text)
+    if (await copyText(text)) {
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
-    } catch {
-      // 剪贴板不可用时静默
     }
   }
 

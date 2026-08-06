@@ -14,9 +14,46 @@ import { createHash } from 'node:crypto'
 import path from 'node:path'
 import Mermaid from '@/components/docs/Mermaid'
 import CopyBtn from '@/components/common/CopyBtn'
+import CodeFold from '@/components/common/CodeFold'
 import DocImage from '@/components/docs/DocImage'
 import type { Root, Element, RootContent } from 'hast'
 import type { Root as MdastRoot } from 'mdast'
+/* rehype-highlight 默认只带 highlight.js 的 common 语言集（约 37 种），
+ * 这里补充文档场景常见但不在其中的语言语法 */
+import dockerfile from 'highlight.js/lib/languages/dockerfile'
+import nginx from 'highlight.js/lib/languages/nginx'
+import makefile from 'highlight.js/lib/languages/makefile'
+import powershell from 'highlight.js/lib/languages/powershell'
+import graphql from 'highlight.js/lib/languages/graphql'
+import kotlin from 'highlight.js/lib/languages/kotlin'
+import swift from 'highlight.js/lib/languages/swift'
+import lua from 'highlight.js/lib/languages/lua'
+import perl from 'highlight.js/lib/languages/perl'
+import r from 'highlight.js/lib/languages/r'
+import scala from 'highlight.js/lib/languages/scala'
+import groovy from 'highlight.js/lib/languages/groovy'
+import vim from 'highlight.js/lib/languages/vim'
+import protobuf from 'highlight.js/lib/languages/protobuf'
+
+const EXTRA_HL_LANGS = {
+  dockerfile,
+  nginx,
+  makefile,
+  powershell,
+  graphql,
+  kotlin,
+  swift,
+  lua,
+  perl,
+  r,
+  scala,
+  groovy,
+  vim,
+  protobuf,
+}
+
+/** 代码块超过该行数时默认折叠（可在头部/底部展开） */
+const CODE_FOLD_LINES = 15
 
 export interface TocItem {
   id: string
@@ -104,7 +141,7 @@ const rehypeMermaid: Plugin<[Ctx], Root> = (ctx) => (tree) => {
   })
 }
 
-/** 代码块 → 带语言标识与复制按钮的 IDE 式面板 */
+/** 代码块 → 带语言标识、复制按钮与折叠控制的 IDE 式面板；超 CODE_FOLD_LINES 行默认折叠 */
 const rehypeCodeBlock: Plugin<[Ctx], Root> = (ctx) => (tree) => {
   walk(tree, (node, parent) => {
     if (node.type !== 'element' || node.tagName !== 'pre') return
@@ -114,6 +151,10 @@ const rehypeCodeBlock: Plugin<[Ctx], Root> = (ctx) => (tree) => {
     // math 块交给 rehype-katex 整体替换为公式，不要包成深色代码面板（黑框嵌白底公式很违和）
     if (cls.includes('language-math')) return
     const lang = (cls.find((c) => c.startsWith('language-')) ?? '').replace('language-', '') || 'text'
+
+    const text = textOf(code)
+    const lines = (text.match(/\n/g) ?? []).length + (text.endsWith('\n') || !text ? 0 : 1)
+    const collapsible = lines > CODE_FOLD_LINES
 
     const copyEl: Element =
       ctx.mode === 'rsc'
@@ -125,27 +166,60 @@ const rehypeCodeBlock: Plugin<[Ctx], Root> = (ctx) => (tree) => {
             children: [{ type: 'text', value: '复制' }],
           }
 
+    // 折叠控制：RSC 模式 → 客户端组件；HTML 模式（编辑器预览）→ 原生按钮走事件委托
+    const foldEl: Element | null = !collapsible
+      ? null
+      : ctx.mode === 'rsc'
+        ? { type: 'element', tagName: 'code-fold', properties: { lines }, children: [] }
+        : {
+            type: 'element',
+            tagName: 'button',
+            properties: { className: ['code-fold-btn'], type: 'button', 'data-lines': lines },
+            children: [{ type: 'text', value: '展开' }],
+          }
+
+    const actions: Element = {
+      type: 'element',
+      tagName: 'div',
+      properties: { className: ['code-actions'] },
+      children: foldEl ? [foldEl, copyEl] : [copyEl],
+    }
+
+    const figureChildren: Element[] = [
+      {
+        type: 'element',
+        tagName: 'figcaption',
+        properties: { className: ['code-head'] },
+        children: [
+          {
+            type: 'element',
+            tagName: 'span',
+            properties: { className: ['code-lang'] },
+            children: [{ type: 'text', value: lang }],
+          },
+          actions,
+        ],
+      },
+      node,
+    ]
+    // HTML 模式的底部展开条（RSC 模式由 CodeFold 组件渲染）
+    if (collapsible && ctx.mode === 'html') {
+      figureChildren.push({
+        type: 'element',
+        tagName: 'button',
+        properties: { className: ['code-expand-bar'], type: 'button' },
+        children: [{ type: 'text', value: `展开全部（${lines} 行）` }],
+      })
+    }
+
     const figure: Element = {
       type: 'element',
       tagName: 'figure',
-      properties: { className: ['code-block'], 'data-lang': lang },
-      children: [
-        {
-          type: 'element',
-          tagName: 'figcaption',
-          properties: { className: ['code-head'] },
-          children: [
-            {
-              type: 'element',
-              tagName: 'span',
-              properties: { className: ['code-lang'] },
-              children: [{ type: 'text', value: lang }],
-            },
-            copyEl,
-          ],
-        },
-        node,
-      ],
+      properties: {
+        className: collapsible ? ['code-block', 'code-collapsed'] : ['code-block'],
+        'data-lang': lang,
+      },
+      children: figureChildren,
     }
     const idx = parent.children.indexOf(node)
     if (idx >= 0) parent.children[idx] = figure as RootContent
@@ -288,9 +362,9 @@ function buildProcessor(ctx: Ctx) {
     .use(rehypeKatex)
     .use(rehypeSourcePos, ctx)
   if (ctx.mode === 'html') {
-    return base.use(rehypeHighlight, { detect: false }).use(rehypeStringify)
+    return base.use(rehypeHighlight, { detect: false, languages: EXTRA_HL_LANGS }).use(rehypeStringify)
   }
-  return base.use(rehypeHighlight, { detect: false })
+  return base.use(rehypeHighlight, { detect: false, languages: EXTRA_HL_LANGS })
 }
 
 /* ---------------- 渲染缓存 ----------------
@@ -434,6 +508,8 @@ function hastToElement(hast: Root): ReactNode {
       'mermaid-block': (props: { chart?: string }) =>
         createElement(Mermaid, { chart: props.chart ?? '' }),
       'copy-btn': () => createElement(CopyBtn),
+      'code-fold': (props: { lines?: number | string }) =>
+        createElement(CodeFold, { lines: Number(props.lines ?? 0) }),
       'doc-img': (props: { src?: string; alt?: string }) =>
         createElement(DocImage, { src: props.src ?? '', alt: props.alt ?? '' }),
     },

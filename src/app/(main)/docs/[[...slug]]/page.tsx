@@ -7,7 +7,7 @@ import { parse as parseYaml } from 'yaml'
 import { Clock, FileText, Folder, GitCommitHorizontal, History, Pencil, Tag } from 'lucide-react'
 import { config } from '@/lib/core/config'
 import { fileLog, isRepoCloned, withGitLock } from '@/lib/git/git'
-import { readDoc, buildTree, type TreeNode } from '@/lib/content/docs'
+import { readDoc, getDocTree, type TreeNode } from '@/lib/content/docs'
 import {
   createRenderState,
   getRenderPlan,
@@ -169,7 +169,7 @@ export default async function DocsPage({ params }: Props) {
   }
 
   const resolved = resolveDoc(slug)
-  const tree = buildTree()
+  const tree = getDocTree()
 
   if (!resolved) {
     if (slug.length === 0) {
@@ -211,7 +211,6 @@ export default async function DocsPage({ params }: Props) {
     }
   }
   const firstChunk = await renderMarkdownChunk(chunks[0], docDir, renderState, {
-    stripFirstH1: true,
     baseOffset: 0,
   })
   const relNoExt = resolved.rel.replace(/\.mdx?$/i, '')

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Check, Copy, Dices, KeyRound, RefreshCw, Trash2, UserPlus, Users, Database, Webhook } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
 import { useDialog } from '@/components/common/Dialog'
+import { copyText as copyToClipboard } from '@/lib/clipboard'
 
 interface SyncInfo {
   repoCloned: boolean
@@ -68,11 +69,10 @@ export default function AdminPanel({ currentUserId }: { currentUserId: number })
   }, [])
 
   async function copyText(text: string, which: 'url' | 'secret') {
-    try {
-      await navigator.clipboard.writeText(text)
+    if (await copyToClipboard(text)) {
       setCopied(which)
       setTimeout(() => setCopied(null), 1500)
-    } catch {
+    } else {
       toast.push('error', '复制失败，请手动选择复制')
     }
   }

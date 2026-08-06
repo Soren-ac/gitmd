@@ -114,9 +114,11 @@ async function pushWithRetry(maxAttempts = 3): Promise<void> {
       await git.fetch('origin', config.branch)
       try {
         await git.rebase([`origin/${config.branch}`])
+        invalidateTreeCache() // rebase 可能把远端的新文件带进工作区
       } catch {
         await git.raw(['rebase', '--abort']).catch(() => {})
         await git.reset(['--hard', `origin/${config.branch}`]).catch(() => {})
+        invalidateTreeCache() // reset 回滚了工作区
         throw new ConflictError('远端存在冲突修改，自动合并失败，请刷新后重试')
       }
     }
@@ -131,6 +133,7 @@ function sanitizeAuthorField(s: string): string {
 async function commitAndPush(
   message: string,
   author: { name: string; email: string },
+  onStage?: (stage: 'committed' | 'pushed') => void,
 ): Promise<string> {
   await git.add('.')
   const status = await git.status()
@@ -139,6 +142,7 @@ async function commitAndPush(
     const email = sanitizeAuthorField(author.email)
     await git.raw(['commit', '-m', message, `--author=${name} <${email}>`])
     invalidateTreeCache()
+    onStage?.('committed')
   }
   // 即使本次没有新提交，本地也可能因上次 push 失败而领先远端——必须与远端对齐后再返回
   const local = await git.revparse(['HEAD'])
@@ -146,6 +150,7 @@ async function commitAndPush(
   if (local !== remote) {
     await pushWithRetry()
   }
+  onStage?.('pushed')
   return git.revparse(['HEAD'])
 }
 
@@ -154,11 +159,15 @@ export interface WriteOp {
   author: { name: string; email: string }
 }
 
-/** 在队列中执行一个写操作并提交推送。fn 内直接操作工作区文件。 */
-export async function withWriteOp<T>(op: WriteOp, fn: () => Promise<T> | T): Promise<{ result: T; head: string }> {
+/** 在队列中执行一个写操作并提交推送。fn 内直接操作工作区文件。onStage 回报 committed/pushed 阶段。 */
+export async function withWriteOp<T>(
+  op: WriteOp,
+  fn: () => Promise<T> | T,
+  onStage?: (stage: 'committed' | 'pushed') => void,
+): Promise<{ result: T; head: string }> {
   return repoQueue.enqueue(async () => {
     const result = await fn()
-    const head = await commitAndPush(op.message, op.author)
+    const head = await commitAndPush(op.message, op.author, onStage)
     return { result, head }
   })
 }

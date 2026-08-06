@@ -10,6 +10,7 @@ import {
   LogOut,
   Menu,
   Moon,
+  PanelLeft,
   Pencil,
   RefreshCw,
   Search,
@@ -20,10 +21,12 @@ import {
 } from 'lucide-react'
 import CommandPalette from '@/components/layout/CommandPalette'
 import { useToast } from '@/components/common/Toast'
+import { copyText } from '@/lib/clipboard'
 
 interface Props {
   user: { username: string; role: string }
   onMenuClick: () => void
+  onToggleSidebar: () => void
 }
 
 interface SyncState {
@@ -43,7 +46,7 @@ function relTime(iso: string | null | undefined): string {
   return `${Math.floor(h / 24)} 天前`
 }
 
-export default function TopNav({ user, onMenuClick }: Props) {
+export default function TopNav({ user, onMenuClick, onToggleSidebar }: Props) {
   const pathname = usePathname()
   const router = useRouter()
   const toast = useToast()
@@ -103,8 +106,8 @@ export default function TopNav({ user, onMenuClick }: Props) {
   }
 
   async function copyLink() {
-    await navigator.clipboard.writeText(window.location.href)
-    toast.push('success', '链接已复制到剪贴板')
+    const ok = await copyText(window.location.href)
+    toast.push(ok ? 'success' : 'error', ok ? '链接已复制到剪贴板' : '复制失败，请手动复制地址栏链接')
   }
 
   async function logout() {
@@ -125,6 +128,14 @@ export default function TopNav({ user, onMenuClick }: Props) {
       <header className="topnav">
         <button className="btn btn-icon nav-menu-btn" aria-label="打开导航" onClick={onMenuClick}>
           <Menu size={17} />
+        </button>
+        <button
+          className="btn btn-icon nav-collapse-btn"
+          aria-label="折叠/展开侧边栏"
+          title="折叠/展开侧边栏"
+          onClick={onToggleSidebar}
+        >
+          <PanelLeft size={16} />
         </button>
 
         <Link href="/docs" className="logo">

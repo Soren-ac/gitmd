@@ -59,27 +59,28 @@ export function buildTree(dir: string = config.repoDir): TreeNode[] {
 }
 
 /* 文件树缓存：遍历整个仓库目录是 I/O 密集操作，而树只在写操作（编辑/移动/删除/
- * 上传，全部经 withWriteOp）或同步（reset --hard/克隆）后才会变化，由这两处显式失效。 */
-let treeCache: TreeNode[] | null = null
+ * 上传，全部经 withWriteOp）或同步（reset --hard/克隆）后才会变化，由这两处显式失效。
+ * 缓存放 globalThis：Next 可能把页面渲染与路由处理器编成不同模块实例（git/db 同样如此处理），
+ * 模块级变量会导致「保存已失效缓存、侧边栏仍读旧树」。 */
+const gTree = globalThis as unknown as { __gitmdTreeCache?: TreeNode[] | null }
 
 export function invalidateTreeCache() {
-  treeCache = null
+  gTree.__gitmdTreeCache = null
 }
 
 /** 带缓存的文件树；仓库未克隆时返回空树且不缓存 */
 export function getDocTree(): TreeNode[] {
-  if (treeCache) return treeCache
+  if (gTree.__gitmdTreeCache) return gTree.__gitmdTreeCache
   if (!fs.existsSync(path.join(config.repoDir, '.git'))) return []
-  treeCache = buildTree()
-  return treeCache
+  gTree.__gitmdTreeCache = buildTree()
+  return gTree.__gitmdTreeCache
 }
 
+/** 文档标题：frontmatter title 优先，否则用文件名（不再取首个 H1——H1 属于正文内容） */
 export function extractTitle(content: string, fallback: string): string {
-  const { frontmatter, body } = splitFrontmatter(content)
+  const { frontmatter } = splitFrontmatter(content)
   const fmTitle = frontmatter.match(/^title:\s*['"]?(.+?)['"]?\s*$/m)
   if (fmTitle) return fmTitle[1]
-  const heading = body.match(/^#\s+(.+)$/m)
-  if (heading) return heading[1].trim()
   return fallback
 }
 

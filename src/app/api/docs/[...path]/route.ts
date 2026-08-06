@@ -87,51 +87,69 @@ export async function PUT(req: Request, ctx: Ctx) {
   const finalContent = loc?.content ?? content
   const imgNote = loc && loc.localized.length > 0 ? `（转存 ${loc.localized.length} 张外链图片）` : ''
 
-  try {
-    const { head } = await withWriteOp(
-      {
-        message: sanitizeMessage(message, `docs: ${before.exists ? 'update' : 'create'} ${resolved.rel}`) + imgNote,
-        author: identity,
-      },
-      async () => {
-        // 队列等待期间可能又有变更，二次校验
-        const now = readDoc(resolved.abs)
-        const nowHash = now.exists ? contentHash(now.content) : ''
-        if (nowHash !== baseHash) {
-          throw new ConflictError('文档已被他人修改', now.content, nowHash)
+  // NDJSON 流式响应：committed → pushed 阶段事件 + 最终结果，前端据此分阶段提示
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (obj: Record<string, unknown>) => controller.enqueue(encoder.encode(JSON.stringify(obj) + '\n'))
+      try {
+        const { head } = await withWriteOp(
+          {
+            message: sanitizeMessage(message, `docs: ${before.exists ? 'update' : 'create'} ${resolved.rel}`) + imgNote,
+            author: identity,
+          },
+          async () => {
+            // 队列等待期间可能又有变更，二次校验
+            const now = readDoc(resolved.abs)
+            const nowHash = now.exists ? contentHash(now.content) : ''
+            if (nowHash !== baseHash) {
+              throw new ConflictError('文档已被他人修改', now.content, nowHash)
+            }
+            for (const f of loc?.files ?? []) {
+              const abs = resolveSafe([f.rel])
+              if (!abs || fs.existsSync(abs)) continue // 内容哈希同名即同内容
+              fs.mkdirSync(path.dirname(abs), { recursive: true })
+              fs.writeFileSync(abs, f.buf)
+            }
+            fs.mkdirSync(path.dirname(resolved.abs), { recursive: true })
+            fs.writeFileSync(resolved.abs, finalContent, 'utf8')
+          },
+          (stage) => send({ stage }),
+        )
+        const { body } = splitFrontmatter(finalContent)
+        indexFile(resolved.rel, extractTitle(finalContent, path.basename(resolved.rel)), body)
+        send({
+          stage: 'done',
+          ok: true,
+          head,
+          hash: contentHash(finalContent),
+          // 转存改写了内容时回传，前端同步编辑器状态
+          ...(finalContent !== content ? { content: finalContent } : {}),
+          ...(loc && (loc.localized.length > 0 || loc.failed.length > 0)
+            ? { images: { localized: loc.localized.length, failed: loc.failed.length } }
+            : {}),
+        })
+      } catch (err) {
+        if (err instanceof ConflictError) {
+          send({
+            stage: 'error',
+            conflict: true,
+            error: err.message,
+            currentContent: err.currentContent ?? '',
+            currentHash: err.currentHash ?? '',
+          })
+        } else {
+          console.error('[gitmd] 保存失败:', err)
+          send({ stage: 'error', error: err instanceof Error ? err.message : '保存失败' })
         }
-        for (const f of loc?.files ?? []) {
-          const abs = resolveSafe([f.rel])
-          if (!abs || fs.existsSync(abs)) continue // 内容哈希同名即同内容
-          fs.mkdirSync(path.dirname(abs), { recursive: true })
-          fs.writeFileSync(abs, f.buf)
-        }
-        fs.mkdirSync(path.dirname(resolved.abs), { recursive: true })
-        fs.writeFileSync(resolved.abs, finalContent, 'utf8')
-      },
-    )
-    const { body } = splitFrontmatter(finalContent)
-    indexFile(resolved.rel, extractTitle(finalContent, path.basename(resolved.rel)), body)
-    return NextResponse.json({
-      ok: true,
-      head,
-      hash: contentHash(finalContent),
-      // 转存改写了内容时回传，前端同步编辑器状态
-      ...(finalContent !== content ? { content: finalContent } : {}),
-      ...(loc && (loc.localized.length > 0 || loc.failed.length > 0)
-        ? { images: { localized: loc.localized.length, failed: loc.failed.length } }
-        : {}),
-    })
-  } catch (err) {
-    if (err instanceof ConflictError) {
-      return NextResponse.json(
-        { error: err.message, conflict: true, currentContent: err.currentContent ?? '', currentHash: err.currentHash ?? '' },
-        { status: 409 },
-      )
-    }
-    console.error('[gitmd] 保存失败:', err)
-    return NextResponse.json({ error: err instanceof Error ? err.message : '保存失败' }, { status: 500 })
-  }
+      } finally {
+        controller.close()
+      }
+    },
+  })
+  return new Response(stream, {
+    headers: { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store' },
+  })
 }
 
 export async function DELETE(_req: Request, ctx: Ctx) {

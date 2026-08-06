@@ -32,6 +32,7 @@ function docHref(path: string) {
 interface Ctx {
   collapseTick: number
   onNavigate: () => void
+  onNewDoc: (dir: string) => void
 }
 
 function TreeItem({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: Ctx }) {
@@ -115,6 +116,19 @@ function TreeItem({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: Ct
             <Folder size={14} className="tree-icon" />
             {node.name}
           </span>
+          <span className="ops">
+            <button
+              className="btn-icon btn"
+              aria-label={`在 ${node.name} 下新建文档`}
+              title={`在 ${node.name}/ 下新建文档`}
+              onClick={(e) => {
+                e.stopPropagation()
+                ctx.onNewDoc(node.path)
+              }}
+            >
+              <FilePlus2 size={13} />
+            </button>
+          </span>
         </div>
         <div className={`tree-collapse ${open ? 'open' : ''}`}>
           <div className="tree-children">
@@ -150,6 +164,7 @@ function TreeItem({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: Ct
 
 export default function Sidebar({ tree, repoReady, open, onClose }: Props) {
   const router = useRouter()
+  const pathname = usePathname()
   const toast = useToast()
   const dialog = useDialog()
   const [filter, setFilter] = useState('')
@@ -169,16 +184,38 @@ export default function Sidebar({ tree, repoReady, open, onClose }: Props) {
     return out
   }, [filter, tree])
 
-  async function newDoc() {
-    const p = await dialog.prompt({
-      title: '新建文档',
-      message: '输入相对仓库根的路径，会自动补 .md 扩展名。',
-      input: { placeholder: 'guide/intro.md' },
-    })
+  async function newDoc(dirPrefix = '') {
+    const p = await dialog.prompt(
+      dirPrefix
+        ? {
+            title: `在 ${dirPrefix}/ 下新建文档`,
+            message: '只需输入文件名，会自动补 .md 扩展名；支持子路径如 sub/note。',
+            input: { placeholder: '文件名', defaultValue: '' },
+          }
+        : {
+            title: '新建文档',
+            message: '输入相对仓库根的路径，会自动补 .md 扩展名。',
+            input: { placeholder: 'guide/intro.md', defaultValue: newDocBase() },
+          },
+    )
     if (!p) return
-    const full = p.endsWith('.md') ? p : `${p}.md`
+    const name = p.replace(/^\/+/, '')
+    if (!name || name.split('/').some((s) => !s || s === '.' || s === '..')) {
+      toast.push('error', '文件名不合法')
+      return
+    }
+    const rel = dirPrefix ? `${dirPrefix}/${name}` : name
+    const full = /\.mdx?$/i.test(rel) ? rel : `${rel}.md`
     onClose()
     router.push('/edit/' + full.split('/').map(encodeURIComponent).join('/') + '?new=1')
+  }
+
+  /** 根级「新建文档」的默认路径前缀：取当前打开文档所在目录 */
+  function newDocBase(): string {
+    if (!pathname.startsWith('/docs/')) return ''
+    const parts = pathname.slice(6).split('/').map(decodeURIComponent)
+    parts.pop()
+    return parts.length ? parts.join('/') + '/' : ''
   }
 
   async function newDir() {
@@ -207,7 +244,7 @@ export default function Sidebar({ tree, repoReady, open, onClose }: Props) {
     }
   }
 
-  const ctx: Ctx = { collapseTick, onNavigate: onClose }
+  const ctx: Ctx = { collapseTick, onNavigate: onClose, onNewDoc: (dir) => void newDoc(dir) }
 
   return (
     <>
@@ -234,7 +271,7 @@ export default function Sidebar({ tree, repoReady, open, onClose }: Props) {
             />
           </form>
           <div className="sidebar-actions">
-            <button className="btn btn-sm" style={{ flex: 1 }} onClick={newDoc}>
+            <button className="btn btn-sm" style={{ flex: 1 }} onClick={() => void newDoc()}>
               <FilePlus2 size={13} />
               新建文档
             </button>

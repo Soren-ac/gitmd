@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import CodeMirror from '@uiw/react-codemirror'
-import { markdown } from '@codemirror/lang-markdown'
+import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
+import { languages } from '@codemirror/language-data'
 import { EditorView } from '@codemirror/view'
 import {
   ArrowLeft,
@@ -20,6 +21,7 @@ import {
   SquareChartGantt,
 } from 'lucide-react'
 import { joinFrontmatter, splitFrontmatter } from '@/lib/markdown/frontmatter'
+import { copyText } from '@/lib/clipboard'
 import { hydrateMermaidBlocks } from '@/components/docs/Mermaid'
 import { useDialog } from '@/components/common/Dialog'
 import Wysiwyg from '@/components/editor/Wysiwyg'
@@ -135,7 +137,20 @@ export default function Editor({ path, docDir, initialFrontmatter, initialBody, 
     }
   }, [previewHtml])
 
-  // ------- 保存 -------
+  // ------- 保存（NDJSON 流式：committed/pushed 分阶段提示） -------
+  interface SaveEvent {
+    stage?: 'committed' | 'pushed' | 'done' | 'error'
+    ok?: boolean
+    head?: string
+    hash?: string
+    content?: string
+    images?: { localized: number; failed: number }
+    error?: string
+    conflict?: boolean
+    currentContent?: string
+    currentHash?: string
+  }
+
   const save = useCallback(async () => {
     if (saving) return
     setSaving(true)
@@ -150,18 +165,50 @@ export default function Editor({ path, docDir, initialFrontmatter, initialBody, 
         body: JSON.stringify({ content, baseHash, message }),
       })
 
+    /** 逐行消费 NDJSON 事件流；阶段事件更新状态栏，返回最终结果；错误事件抛出 */
+    const consume = async (res: Response): Promise<SaveEvent> => {
+      if (!res.body) return (await res.json()) as SaveEvent
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      let final: SaveEvent | null = null
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        const lines = buf.split('\n')
+        buf = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.trim()) continue
+          const ev = JSON.parse(line) as SaveEvent
+          if (ev.stage === 'committed') {
+            setStatus('已提交到本地仓库，推送中…')
+          } else if (ev.stage === 'pushed') {
+            setStatus('已推送到远端仓库 ✓')
+          } else if (ev.stage === 'done') {
+            final = ev
+          } else if (ev.stage === 'error') {
+            throw Object.assign(new Error(ev.error ?? '保存失败'), ev)
+          }
+        }
+      }
+      return final ?? {}
+    }
+
+    const conflictDialog = () =>
+      dialog.confirm({
+        title: '保存冲突',
+        message:
+          '该文档在你编辑期间已被他人修改。\n\n「覆盖远端」将以你的内容为准；「取消」保留编辑器内容，你可以先复制保存再手动合并。',
+        confirmText: '覆盖远端',
+        danger: true,
+      })
+
     try {
       let res = await attempt(hash)
       if (res.status === 409) {
         const data = await res.json()
-        const overwrite = await dialog.confirm({
-          title: '保存冲突',
-          message:
-            '该文档在你编辑期间已被他人修改。\n\n「覆盖远端」将以你的内容为准；「取消」保留编辑器内容，你可以先复制保存再手动合并。',
-          confirmText: '覆盖远端',
-          danger: true,
-        })
-        if (!overwrite) {
+        if (!(await conflictDialog())) {
           setStatus('已取消保存')
           setStatusTone('info')
           setSaving(false)
@@ -169,9 +216,27 @@ export default function Editor({ path, docDir, initialFrontmatter, initialBody, 
         }
         res = await attempt(data.currentHash ?? '')
       }
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? '保存失败')
-      setHash(data.hash)
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error ?? '保存失败')
+      }
+      let data: SaveEvent
+      try {
+        data = await consume(res)
+      } catch (err) {
+        // 入队后的二次校验冲突（罕见）：走同一覆盖确认流程
+        if (err instanceof Error && (err as SaveEvent).conflict) {
+          if (!(await conflictDialog())) {
+            setStatus('已取消保存')
+            setStatusTone('info')
+            return
+          }
+          data = await consume(await attempt((err as SaveEvent).currentHash ?? ''))
+        } else {
+          throw err
+        }
+      }
+      setHash(data.hash ?? hash)
       if (typeof data.content === 'string' && data.content !== content) {
         // 服务端转存外链图片改写了内容：同步编辑器与未保存基线
         const split = splitFrontmatter(data.content)
@@ -183,9 +248,9 @@ export default function Editor({ path, docDir, initialFrontmatter, initialBody, 
         setSaved({ body: bodyRef.current, fm: fmRef.current })
       }
       setCommitMsg('')
-      const imgs = data.images as { localized: number; failed: number } | undefined
+      const imgs = data.images
       setStatus(
-        '已保存并推送' +
+        '已提交并推送 ✓' +
           (imgs?.localized ? `（转存 ${imgs.localized} 张外链图片）` : '') +
           (imgs?.failed ? `（${imgs.failed} 张外链图下载失败，已保留原链接）` : ''),
       )
@@ -281,12 +346,23 @@ export default function Editor({ path, docDir, initialFrontmatter, initialBody, 
     }
   }
 
-  // 预览面板里代码块复制按钮（HTML 预览模式下的事件委托）
+  // 预览面板里代码块复制/折叠按钮（HTML 预览模式下的事件委托）
   function onPreviewClick(e: React.MouseEvent) {
-    const btn = (e.target as HTMLElement).closest('.copy-btn')
+    const target = e.target as HTMLElement
+    const foldBtn = target.closest('.code-fold-btn, .code-expand-bar')
+    if (foldBtn) {
+      const figure = foldBtn.closest('figure.code-block')
+      if (!figure) return
+      const collapsed = figure.classList.toggle('code-collapsed')
+      const headerBtn = figure.querySelector('.code-fold-btn')
+      if (headerBtn) headerBtn.textContent = collapsed ? '展开' : '折叠'
+      return
+    }
+    const btn = target.closest('.copy-btn')
     if (!btn) return
     const text = btn.closest('figure.code-block')?.querySelector('pre')?.textContent ?? ''
-    navigator.clipboard.writeText(text).then(() => {
+    copyText(text).then((ok) => {
+      if (!ok) return
       btn.textContent = '已复制'
       setTimeout(() => (btn.textContent = '复制'), 1500)
     })
@@ -444,7 +520,7 @@ export default function Editor({ path, docDir, initialFrontmatter, initialBody, 
                 <CodeMirror
                   value={body}
                   onChange={setBody}
-                  extensions={[markdown(), EditorView.lineWrapping]}
+                  extensions={[markdown({ base: markdownLanguage, codeLanguages: languages }), EditorView.lineWrapping]}
                   onCreateEditor={(view) => {
                     viewRef.current = view
                   }}
