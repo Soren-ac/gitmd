@@ -18,8 +18,9 @@ import CodeFold from '@/components/common/CodeFold'
 import DocImage from '@/components/docs/DocImage'
 import type { Root, Element, RootContent } from 'hast'
 import type { Root as MdastRoot } from 'mdast'
-/* rehype-highlight 默认只带 highlight.js 的 common 语言集（约 37 种），
- * 这里补充文档场景常见但不在其中的语言语法 */
+/* rehype-highlight 的 languages 选项是整体替换（默认 common 集，约 37 种），
+ * 所以必须把 common 展开后再补文档场景常见的额外语言，不能只传增量 */
+import { common as COMMON_HL_LANGS } from 'lowlight'
 import dockerfile from 'highlight.js/lib/languages/dockerfile'
 import nginx from 'highlight.js/lib/languages/nginx'
 import makefile from 'highlight.js/lib/languages/makefile'
@@ -35,7 +36,8 @@ import groovy from 'highlight.js/lib/languages/groovy'
 import vim from 'highlight.js/lib/languages/vim'
 import protobuf from 'highlight.js/lib/languages/protobuf'
 
-const EXTRA_HL_LANGS = {
+const HL_LANGS = {
+  ...COMMON_HL_LANGS,
   dockerfile,
   nginx,
   makefile,
@@ -362,9 +364,9 @@ function buildProcessor(ctx: Ctx) {
     .use(rehypeKatex)
     .use(rehypeSourcePos, ctx)
   if (ctx.mode === 'html') {
-    return base.use(rehypeHighlight, { detect: false, languages: EXTRA_HL_LANGS }).use(rehypeStringify)
+    return base.use(rehypeHighlight, { detect: false, languages: HL_LANGS }).use(rehypeStringify)
   }
-  return base.use(rehypeHighlight, { detect: false, languages: EXTRA_HL_LANGS })
+  return base.use(rehypeHighlight, { detect: false, languages: HL_LANGS })
 }
 
 /* ---------------- 渲染缓存 ----------------
