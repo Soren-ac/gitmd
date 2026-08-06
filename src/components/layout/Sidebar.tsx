@@ -63,7 +63,12 @@ function TreeItem({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: Ct
         body: JSON.stringify({ from: node.path, to }),
       })
       if (res.ok) {
+        const data = await res.json().catch(() => ({}))
         toast.push('success', `已移动到 ${to}`)
+        // 正在查看被移动的文档时，跟随跳转到新路径，避免停在 404
+        if (pathname === docHref(node.path) && typeof data.path === 'string') {
+          router.push(docHref(data.path))
+        }
       } else {
         const d = await res.json().catch(() => ({}))
         if (d.identityRequired) {

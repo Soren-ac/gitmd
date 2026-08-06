@@ -137,7 +137,9 @@ async function commitAndPush(
 ): Promise<string> {
   await git.add('.')
   const status = await git.status()
-  if (status.staged.length > 0) {
+  // 注意：纯重命名在 simple-git 里进 status.renamed 而非 staged，
+  // 用 files.length 判断「有没有东西可提交」才可靠
+  if (status.files.length > 0) {
     const name = sanitizeAuthorField(author.name)
     const email = sanitizeAuthorField(author.email)
     await git.raw(['commit', '-m', message, `--author=${name} <${email}>`])
