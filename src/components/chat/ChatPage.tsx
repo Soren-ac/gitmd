@@ -66,6 +66,7 @@ export default function ChatPage() {
           conversationId={conversationId}
           onConversationChange={setConversationId}
           onConversationCreate={loadConvs}
+          contextDoc={null}
         />
       </div>
     </div>

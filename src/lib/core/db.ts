@@ -63,6 +63,11 @@ function createDb(): Database.Database {
   const userCols = (db.prepare('PRAGMA table_info(users)').all() as { name: string }[]).map((c) => c.name)
   if (!userCols.includes('git_name')) db.prepare('ALTER TABLE users ADD COLUMN git_name TEXT').run()
   if (!userCols.includes('git_email')) db.prepare('ALTER TABLE users ADD COLUMN git_email TEXT').run()
+  // 迁移：conversations 表增加上下文文档列
+  const convCols = (db.prepare('PRAGMA table_info(conversations)').all() as { name: string }[]).map((c) => c.name)
+  if (convCols.length > 0 && !convCols.includes('doc_path')) {
+    db.prepare('ALTER TABLE conversations ADD COLUMN doc_path TEXT').run()
+  }
   // 播种 admin 账号
   const count = db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }
   if (count.n === 0) {
@@ -134,6 +139,7 @@ export interface ConversationRow {
   user_id: number
   title: string
   session_id: string | null
+  doc_path: string | null
   created_at: string
   updated_at: string
 }
@@ -148,7 +154,7 @@ export interface ChatMessageRow {
 
 const convStmts = {
   create: db.prepare(
-    "INSERT INTO conversations (id, user_id, title, session_id) VALUES (?, ?, ?, NULL)",
+    "INSERT INTO conversations (id, user_id, title, session_id, doc_path) VALUES (?, ?, ?, NULL, ?)",
   ),
   byId: db.prepare('SELECT * FROM conversations WHERE id = ?'),
   byUser: db.prepare(
@@ -164,8 +170,8 @@ const convStmts = {
   messages: db.prepare('SELECT * FROM chat_messages WHERE conversation_id = ? ORDER BY id ASC'),
 }
 
-export function createConversation(id: string, userId: number, title: string) {
-  convStmts.create.run(id, userId, title)
+export function createConversation(id: string, userId: number, title: string, docPath: string | null = null) {
+  convStmts.create.run(id, userId, title, docPath)
 }
 
 export function getConversation(id: string): ConversationRow | undefined {

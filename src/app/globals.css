@@ -1985,7 +1985,7 @@ table.admin-table tbody tr:hover { background: var(--hover); }
 .annotation-orphan-chip {
   position: fixed;
   right: 20px;
-  bottom: 20px;
+  bottom: 76px; /* 避让右下角 AI 悬浮按钮（46px + 间距） */
   z-index: 110;
   display: inline-flex;
   align-items: center;
@@ -2008,7 +2008,7 @@ table.admin-table tbody tr:hover { background: var(--hover); }
 .annotation-orphans {
   position: fixed;
   right: 20px;
-  bottom: 60px;
+  bottom: 116px; /* 跟随失效批注入口上移 */
 }
 /* 失效批注气泡在入口按钮上方，箭头改到底边右侧指向按钮 */
 .annotation-orphans::before {
@@ -2300,3 +2300,39 @@ table.admin-table tbody tr:hover { background: var(--hover); }
   .chat-page-side { display: none; }
   .chat-drawer { right: 8px; left: 8px; width: auto; }
 }
+
+/* 上下文文档 chip */
+.chat-input-area { border-top: 1px solid var(--border); flex-shrink: 0; }
+.chat-input-area .chat-input-row { border-top: none; }
+.chat-context {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 12px 0;
+  max-width: calc(100% - 24px);
+  padding: 3px 9px;
+  border-radius: 99px;
+  background: var(--accent-subtle);
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+.chat-context svg { flex-shrink: 0; }
+.chat-context-path {
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-context-clear {
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 1px;
+  border-radius: 50%;
+  opacity: 0.7;
+}
+.chat-context-clear:hover { opacity: 1; }

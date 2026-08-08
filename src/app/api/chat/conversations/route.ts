@@ -11,6 +11,7 @@ export async function GET() {
     conversations: rows.map((c) => ({
       id: c.id,
       title: c.title || '新对话',
+      docPath: c.doc_path ?? null,
       createdAt: c.created_at,
       updatedAt: c.updated_at,
     })),

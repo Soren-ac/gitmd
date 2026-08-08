@@ -14,7 +14,13 @@ export async function GET(_req: Request, ctx: Ctx) {
     return NextResponse.json({ error: '会话不存在' }, { status: 404 })
   }
   return NextResponse.json({
-    conversation: { id: conv.id, title: conv.title, createdAt: conv.created_at, updatedAt: conv.updated_at },
+    conversation: {
+      id: conv.id,
+      title: conv.title,
+      docPath: conv.doc_path ?? null,
+      createdAt: conv.created_at,
+      updatedAt: conv.updated_at,
+    },
     messages: listChatMessages(conv.id).map((m) => ({ id: m.id, role: m.role, content: m.content, at: m.created_at })),
   })
 }

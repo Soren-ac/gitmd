@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { History, Maximize2, MessageSquarePlus, Sparkles, Trash2, X } from 'lucide-react'
 import ChatUI from '@/components/chat/ChatUI'
 
@@ -11,14 +11,24 @@ interface ConvItem {
   updatedAt: string
 }
 
+/** 从文档/编辑页路由推导出仓库相对文档路径（服务端负责解析目录 README 等形式） */
+function docPathOf(pathname: string): string | null {
+  const m = pathname.match(/^\/(?:docs|edit)\/(.+)$/)
+  if (!m) return null
+  return m[1].split('/').map(decodeURIComponent).join('/')
+}
+
 /** AI 对话入口：右下角悬浮按钮 + 抽屉面板；未配置 AI 时不渲染 */
 export default function ChatWidget() {
   const router = useRouter()
+  const pathname = usePathname()
   const [enabled, setEnabled] = useState(false)
   const [open, setOpen] = useState(false)
   const [listOpen, setListOpen] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [convs, setConvs] = useState<ConvItem[]>([])
+
+  const pageDoc = docPathOf(pathname)
 
   useEffect(() => {
     fetch('/api/chat/status')
@@ -108,6 +118,7 @@ export default function ChatWidget() {
             conversationId={conversationId}
             onConversationChange={setConversationId}
             onConversationCreate={loadConvs}
+            contextDoc={pageDoc}
           />
         </div>
       )}
