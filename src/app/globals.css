@@ -808,6 +808,19 @@ html.sidebar-dragging .sidebar { transition: none !important; }
   white-space: nowrap;
 }
 .rail-meta { font-size: 12px; color: var(--text-tertiary); }
+.rail-contributor {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12.5px;
+  padding: 3px 0;
+}
+.rail-contributor-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .commit-hash {
   font-family: var(--font-mono);

@@ -4,9 +4,9 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { Suspense } from 'react'
 import { parse as parseYaml } from 'yaml'
-import { Clock, FileText, Folder, GitCommitHorizontal, History, Pencil, Tag } from 'lucide-react'
+import { Clock, FileText, Folder, GitCommitHorizontal, History, Pencil, Tag, Type, Users } from 'lucide-react'
 import { config } from '@/lib/core/config'
-import { fileLog, isRepoCloned, withGitLock } from '@/lib/git/git'
+import { fileContributors, fileLog, isRepoCloned, withGitLock } from '@/lib/git/git'
 import { readDoc, getDocTree, type TreeNode } from '@/lib/content/docs'
 import {
   createRenderState,
@@ -63,6 +63,14 @@ function parseFm(raw: string): { description?: string; tags: string[] } {
 
 function readingMinutes(text: string): number {
   return Math.max(1, Math.round(text.length / 450))
+}
+
+/** 字数统计：代码块不计入，CJK 逐字计、拉丁文按单词计（与常见编辑器口径一致） */
+function wordCount(text: string): number {
+  const noCode = text.replace(/```[\s\S]*?```/g, ' ')
+  const cjk = (noCode.match(/[\u3400-\u9fff\uf900-\ufaff]/g) ?? []).length
+  const words = noCode.replace(/[\u3400-\u9fff\uf900-\ufaff]/g, ' ').match(/[\w'-]+/g) ?? []
+  return cjk + words.length
 }
 
 function DirListing({ rel, tree }: { rel: string; tree: TreeNode[] }) {
@@ -214,7 +222,10 @@ export default async function DocsPage({ params }: Props) {
     baseOffset: 0,
   })
   const relNoExt = resolved.rel.replace(/\.mdx?$/i, '')
-  const lastCommit = (await withGitLock(() => fileLog(resolved.rel, 1)))[0]
+  const { lastCommit, contributors } = await withGitLock(async () => ({
+    lastCommit: (await fileLog(resolved.rel, 1))[0],
+    contributors: await fileContributors(resolved.rel),
+  }))
 
   return (
     <div className="doc-layout">
@@ -229,6 +240,16 @@ export default async function DocsPage({ params }: Props) {
               <Clock size={13} />
               约 {readingMinutes(doc.body)} 分钟
             </span>
+            <span className="doc-meta-item">
+              <Type size={13} />
+              {wordCount(doc.body)} 字
+            </span>
+            {contributors.length > 0 && (
+              <span className="doc-meta-item">
+                <Users size={13} />
+                {contributors.length} 位贡献者
+              </span>
+            )}
             {lastCommit && (
               <span className="doc-meta-item" title={lastCommit.message}>
                 <GitCommitHorizontal size={13} />
@@ -280,6 +301,20 @@ export default async function DocsPage({ params }: Props) {
             <div className="rail-meta">
               {lastCommit.author} · {new Date(lastCommit.date).toLocaleString('zh-CN')}
             </div>
+          </div>
+        )}
+        {contributors.length > 0 && (
+          <div className="rail-section">
+            <div className="rail-title">贡献者</div>
+            {contributors.slice(0, 8).map((c) => (
+              <div key={c.name} className="rail-contributor">
+                <span className="rail-contributor-name">{c.name}</span>
+                <span className="muted">{c.commits} 次提交</span>
+              </div>
+            ))}
+            {contributors.length > 8 && (
+              <div className="rail-meta">等 {contributors.length} 位</div>
+            )}
           </div>
         )}
       </aside>

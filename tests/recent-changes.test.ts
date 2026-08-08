@@ -40,7 +40,7 @@ git(repoDir, 'mv a.md b.md')
 git(repoDir, 'commit -qm "docs: rename a to b"')
 git(repoDir, 'push -q origin main')
 
-const { recentChanges } = await import('../src/lib/git/git.ts')
+const { recentChanges, fileContributors } = await import('../src/lib/git/git.ts')
 
 test('按提交分组、时间倒序，只含 md 文件', async () => {
   const entries = await recentChanges(10)
@@ -61,4 +61,12 @@ test('按提交分组、时间倒序，只含 md 文件', async () => {
   assert.equal(rename.status, 'R')
   assert.equal(rename.oldPath, 'a.md')
   assert.equal(rename.path, 'b.md')
+})
+
+test('贡献者按提交数聚合降序', async () => {
+  // a.md 历史上被 t 提交 3 次（新增/修改/重命名各一）
+  const contrib = await fileContributors('a.md')
+  assert.equal(contrib.length, 1)
+  assert.equal(contrib[0].name, 't')
+  assert.equal(contrib[0].commits, 3)
 })

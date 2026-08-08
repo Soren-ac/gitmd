@@ -217,6 +217,21 @@ export async function diffBetween(relPath: string, from: string, to: string): Pr
   return git.raw(['diff', `${from}..${to}`, '--', relPath])
 }
 
+/** 文档贡献者：按 author 聚合提交数降序。maxCommits 防止超长历史拖慢页面 */
+export async function fileContributors(
+  relPath: string,
+  maxCommits = 500,
+): Promise<{ name: string; commits: number }[]> {
+  const out = await git.raw(['log', `--max-count=${maxCommits}`, '--format=%an', '--', relPath])
+  const counts = new Map<string, number>()
+  for (const line of out.split('\n').filter(Boolean)) {
+    counts.set(line, (counts.get(line) ?? 0) + 1)
+  }
+  return [...counts.entries()]
+    .map(([name, commits]) => ({ name, commits }))
+    .sort((a, b) => b.commits - a.commits || a.name.localeCompare(b.name))
+}
+
 export interface ChangedFile {
   status: 'A' | 'M' | 'D' | 'R' | string
   path: string
