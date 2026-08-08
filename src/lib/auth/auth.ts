@@ -6,8 +6,12 @@ import { config } from '@/lib/core/config'
 const COOKIE_NAME = 'gitmd_session'
 const SESSION_TTL_MS = 7 * 24 * 3600 * 1000
 
-// AUTH_SECRET 未配置时用进程级随机密钥（重启后会话全部失效，仅作兜底）
-const secret = config.authSecret || randomBytes(32).toString('hex')
+/* AUTH_SECRET 未配置时用随机密钥兜底（重启后会话全部失效）。
+ * 必须放 globalThis：Next 生产构建会把 RSC 与路由处理器编成不同模块实例，
+ * 模块级 const 会让「登录签发」与「页面验签」各持一把随机密钥，
+ * 表现为登录成功后立刻被弹回登录页（git/db/树缓存同样因此放 globalThis）。 */
+const gAuth = globalThis as unknown as { __gitmdAuthSecret?: string }
+const secret = config.authSecret || (gAuth.__gitmdAuthSecret ??= randomBytes(32).toString('hex'))
 
 function sign(payload: string): string {
   return createHmac('sha256', secret).update(payload).digest('hex')
