@@ -3,6 +3,13 @@ import path from 'node:path'
 import simpleGit, { type SimpleGit } from 'simple-git'
 import { config } from '@/lib/core/config'
 import { invalidateTreeCache } from '@/lib/content/docs'
+import { invalidateAnnotationsCache } from '@/lib/annotations/all'
+
+/** 工作区内容变化后的缓存失效：文件树与全库批注快照同生共死 */
+function invalidateRepoCaches() {
+  invalidateTreeCache()
+  invalidateAnnotationsCache()
+}
 
 export class ConflictError extends Error {
   readonly currentContent?: string
@@ -75,7 +82,7 @@ export async function ensureCloned(): Promise<void> {
   await simpleGit().env(mergedEnv(extra)).clone(config.repoUrl, tmp, ['--branch', config.branch, '--single-branch'])
   fs.rmSync(config.repoDir, { recursive: true, force: true })
   fs.renameSync(tmp, config.repoDir)
-  invalidateTreeCache()
+  invalidateRepoCaches()
 }
 
 export interface SyncResult {
@@ -100,7 +107,7 @@ export async function syncRepo(): Promise<SyncResult> {
     changedFiles = out.split('\n').filter(Boolean)
   }
   await git.reset(['--hard', `origin/${config.branch}`])
-  invalidateTreeCache()
+  invalidateRepoCaches()
   return { changed: true, changedFiles, head: remote }
 }
 
@@ -115,11 +122,11 @@ async function pushWithRetry(maxAttempts = 3): Promise<void> {
       await git.fetch('origin', config.branch)
       try {
         await git.rebase([`origin/${config.branch}`])
-        invalidateTreeCache() // rebase 可能把远端的新文件带进工作区
+        invalidateRepoCaches() // rebase 可能把远端的新文件带进工作区
       } catch {
         await git.raw(['rebase', '--abort']).catch(() => {})
         await git.reset(['--hard', `origin/${config.branch}`]).catch(() => {})
-        invalidateTreeCache() // reset 回滚了工作区
+        invalidateRepoCaches() // reset 回滚了工作区
         throw new ConflictError('远端存在冲突修改，自动合并失败，请刷新后重试')
       }
     }
@@ -144,7 +151,7 @@ async function commitAndPush(
     const name = sanitizeAuthorField(author.name)
     const email = sanitizeAuthorField(author.email)
     await git.raw(['commit', '-m', message, `--author=${name} <${email}>`])
-    invalidateTreeCache()
+    invalidateRepoCaches()
     onStage?.('committed')
   }
   // 即使本次没有新提交，本地也可能因上次 push 失败而领先远端——必须与远端对齐后再返回
