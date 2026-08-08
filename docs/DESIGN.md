@@ -158,6 +158,10 @@ CREATE TABLE settings (
 | POST | /api/admin/config | {action:'generate'} 随机生成密钥（admin） |
 | GET/POST | /api/admin/users | 用户列表 / 新建用户（admin） |
 | PUT/DELETE | /api/admin/users/[id] | 改密码（本人或 admin）/ 删除用户（admin，不可删自己） |
+| POST | /api/chat | AI 对话（NDJSON 流式：meta/session/activity/delta/done） |
+| GET | /api/chat/status | AI 是否已配置（决定前端入口显隐） |
+| GET | /api/chat/conversations | 当前用户会话列表 |
+| GET/DELETE | /api/chat/conversations/[id] | 会话消息 / 删除（仅本人） |
 
 约定：所有写操作返回 `{ ok: true, head }` 或 `{ ok: false, error }`；冲突返回 HTTP 409。
 
@@ -237,7 +241,17 @@ remark-parse → remark-gfm → remark-frontmatter → remark-math
 - CodeHub 配置：仓库 Settings → Webhooks → URL 填 `https://<平台地址>/api/webhook?token=<WEBHOOK_SECRET>`，事件勾选 Push
 - 兜底轮询 `POLL_INTERVAL_MS`（默认 600000）
 
-## 11. 里程碑
+## 11. AI 对话
+
+由部署机上的 Claude Code（Agent SDK）驱动：每条消息 spawn 一个只读 agent（`allowedTools: [Read, Grep, Glob]`，`permissionMode: dontAsk`），cwd 指向文档仓库，模型自行检索/阅读文档作答，答案引用以 markdown 链接跳回 `/docs/*`。
+
+- **多轮**：会话表存 Claude `session_id`，后续轮 `resume` 续上下文
+- **模型端点可配**：管理界面（settings 表 `ai_*`）> `AI_*` 环境变量 > `ANTHROPIC_*` 环境变量；更换模型/网关只改配置
+- **流式**：SDK 事件 → NDJSON（`meta`/`session`/`activity`（正在读哪个文件）/`delta`/`done`/`error`）
+- **前端**：右下角悬浮抽屉 + `/chat` 独立页共用 `ChatUI`；助手答案完成后经 `/api/preview` 复用文档渲染管线排版；所有登录用户可用，会话按用户隔离
+- **存储**：`conversations`（用户/标题/session_id）+ `chat_messages` 两表
+
+## 12. 里程碑
 
 - M1 骨架：认证 + 克隆/同步 + 只读渲染
 - M2 编辑闭环：源码编辑 + 保存 push + 乐观锁 + webhook/轮询

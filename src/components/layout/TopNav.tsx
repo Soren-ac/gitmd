@@ -15,6 +15,7 @@ import {
   RefreshCw,
   Search,
   Settings,
+  Sparkles,
   Sun,
   UserCog,
   XCircle,
@@ -166,6 +167,10 @@ export default function TopNav({ user, onMenuClick, onToggleSidebar }: Props) {
             {syncErr ? '同步失败' : syncOk ? `已同步 · ${relTime(sync?.state?.last_sync_at)}` : '同步中'}
           </span>
 
+          <Link className="btn btn-sm" href="/chat" title="文档助手">
+            <Sparkles size={13} />
+            文档助手
+          </Link>
           {editHref && (
             <Link className="btn btn-sm" href={editHref}>
               <Pencil size={13} />

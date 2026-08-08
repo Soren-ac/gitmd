@@ -36,6 +36,22 @@ function createDb(): Database.Database {
       key   TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS conversations (
+      id          TEXT PRIMARY KEY,
+      user_id     INTEGER NOT NULL,
+      title       TEXT NOT NULL DEFAULT '',
+      session_id  TEXT,
+      created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      conversation_id TEXT NOT NULL,
+      role            TEXT NOT NULL,
+      content         TEXT NOT NULL,
+      created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_chat_messages_conv ON chat_messages(conversation_id);
     CREATE VIRTUAL TABLE IF NOT EXISTS doc_fts USING fts5(
       path UNINDEXED,
       title,
@@ -109,4 +125,74 @@ export function deleteSetting(key: string) {
 /** webhook 验签密钥：界面配置（DB）优先，其次 WEBHOOK_SECRET 环境变量 */
 export function getWebhookSecret(): string {
   return getSetting('webhook_secret') ?? config.webhookSecret
+}
+
+/* ---------- AI 对话会话 ---------- */
+
+export interface ConversationRow {
+  id: string
+  user_id: number
+  title: string
+  session_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ChatMessageRow {
+  id: number
+  conversation_id: string
+  role: 'user' | 'assistant'
+  content: string
+  created_at: string
+}
+
+const convStmts = {
+  create: db.prepare(
+    "INSERT INTO conversations (id, user_id, title, session_id) VALUES (?, ?, ?, NULL)",
+  ),
+  byId: db.prepare('SELECT * FROM conversations WHERE id = ?'),
+  byUser: db.prepare(
+    'SELECT * FROM conversations WHERE user_id = ? ORDER BY updated_at DESC LIMIT 100',
+  ),
+  setSession: db.prepare(
+    "UPDATE conversations SET session_id = ?, updated_at = datetime('now') WHERE id = ?",
+  ),
+  touch: db.prepare("UPDATE conversations SET updated_at = datetime('now') WHERE id = ?"),
+  remove: db.prepare('DELETE FROM conversations WHERE id = ? AND user_id = ?'),
+  removeMessages: db.prepare('DELETE FROM chat_messages WHERE conversation_id = ?'),
+  addMessage: db.prepare('INSERT INTO chat_messages (conversation_id, role, content) VALUES (?, ?, ?)'),
+  messages: db.prepare('SELECT * FROM chat_messages WHERE conversation_id = ? ORDER BY id ASC'),
+}
+
+export function createConversation(id: string, userId: number, title: string) {
+  convStmts.create.run(id, userId, title)
+}
+
+export function getConversation(id: string): ConversationRow | undefined {
+  return convStmts.byId.get(id) as ConversationRow | undefined
+}
+
+export function listConversations(userId: number): ConversationRow[] {
+  return convStmts.byUser.all(userId) as ConversationRow[]
+}
+
+export function setConversationSession(id: string, sessionId: string) {
+  convStmts.setSession.run(sessionId, id)
+}
+
+export function touchConversation(id: string) {
+  convStmts.touch.run(id)
+}
+
+export function deleteConversation(id: string, userId: number) {
+  convStmts.removeMessages.run(id)
+  convStmts.remove.run(id, userId)
+}
+
+export function addChatMessage(conversationId: string, role: 'user' | 'assistant', content: string) {
+  convStmts.addMessage.run(conversationId, role, content)
+}
+
+export function listChatMessages(conversationId: string): ChatMessageRow[] {
+  return convStmts.messages.all(conversationId) as ChatMessageRow[]
 }

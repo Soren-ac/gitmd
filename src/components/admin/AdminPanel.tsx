@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Check, Copy, Dices, KeyRound, RefreshCw, Trash2, UserPlus, Users, Database, Webhook } from 'lucide-react'
+import { Check, Copy, Dices, KeyRound, RefreshCw, Sparkles, Trash2, UserPlus, Users, Database, Webhook } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
 import { useDialog } from '@/components/common/Dialog'
 import { copyText as copyToClipboard } from '@/lib/clipboard'
@@ -22,6 +22,14 @@ interface SyncInfo {
 
 interface WebhookInfo {
   secret: string
+  source: 'db' | 'env' | 'none'
+}
+
+interface AiInfo {
+  baseUrl: string
+  apiKey: string
+  model: string
+  cliPath: string
   source: 'db' | 'env' | 'none'
 }
 
@@ -53,14 +61,29 @@ export default function AdminPanel({ currentUserId }: { currentUserId: number })
   const [secretInput, setSecretInput] = useState('')
   const [savingSecret, setSavingSecret] = useState(false)
   const [copied, setCopied] = useState<'url' | 'secret' | null>(null)
-  // 仅在 webhook 数据加载后（客户端）才渲染 URL，SSR/水合输出一致，无 mismatch
   const [origin] = useState(() => (typeof window === 'undefined' ? '' : window.location.origin))
+  const [ai, setAi] = useState<AiInfo | null>(null)
+  const [aiForm, setAiForm] = useState({ aiBaseUrl: '', aiApiKey: '', aiModel: '', aiCliPath: '' })
+  const [aiSaving, setAiSaving] = useState(false)
+  const [aiTesting, setAiTesting] = useState(false)
 
   async function load() {
     const [s, u, c] = await Promise.all([fetch('/api/sync'), fetch('/api/admin/users'), fetch('/api/admin/config')])
     if (s.ok) setSync(await s.json())
     if (u.ok) setUsers((await u.json()).users)
-    if (c.ok) setWebhook((await c.json()).webhook)
+    if (c.ok) {
+      const data = await c.json()
+      setWebhook(data.webhook)
+      if (data.ai) {
+        setAi(data.ai)
+        setAiForm({
+          aiBaseUrl: data.ai.baseUrl ?? '',
+          aiApiKey: data.ai.apiKey ?? '',
+          aiModel: data.ai.model ?? '',
+          aiCliPath: data.ai.cliPath ?? '',
+        })
+      }
+    }
   }
 
   useEffect(() => {
@@ -115,6 +138,43 @@ export default function AdminPanel({ currentUserId }: { currentUserId: number })
       toast.push('success', '已生成新密钥')
     } else {
       toast.push('error', data.error ?? '生成失败')
+    }
+  }
+
+  async function saveAi(e: React.FormEvent) {
+    e.preventDefault()
+    if (aiSaving) return
+    setAiSaving(true)
+    const res = await fetch('/api/admin/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(aiForm),
+    })
+    const data = await res.json().catch(() => ({}))
+    setAiSaving(false)
+    if (res.ok) {
+      setAi(data.ai)
+      toast.push('success', 'AI 配置已保存')
+    } else {
+      toast.push('error', data.error ?? '保存失败')
+    }
+  }
+
+  async function testAi() {
+    if (aiTesting) return
+    setAiTesting(true)
+    toast.push('info', '正在测试模型连接…')
+    const res = await fetch('/api/admin/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'test-ai' }),
+    })
+    const data = await res.json().catch(() => ({}))
+    setAiTesting(false)
+    if (res.ok && data.ok) {
+      toast.push('success', `连接成功（${((data.latencyMs ?? 0) / 1000).toFixed(1)}s）`)
+    } else {
+      toast.push('error', '连接失败：' + (data.error ?? res.status))
     }
   }
 
@@ -324,6 +384,93 @@ export default function AdminPanel({ currentUserId }: { currentUserId: number })
               <p className="muted" style={{ fontSize: 12, marginTop: 10, marginBottom: 0, lineHeight: 1.7 }}>
                 把上面的 URL 配到 CodeHub：仓库 Settings → Webhooks → 事件勾选 Push。
                 界面配置的密钥优先于 WEBHOOK_SECRET 环境变量；更换密钥后需同步更新 CodeHub 侧。
+              </p>
+            </>
+          )}
+        </div>
+      </section>
+
+      <section className="admin-section">
+        <h2>
+          <Sparkles size={16} style={{ color: 'var(--text-tertiary)' }} />
+          AI 对话
+        </h2>
+        <div className="card" style={{ maxWidth: 760, padding: '14px 16px' }}>
+          {!ai ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div className="skeleton" style={{ height: 18, width: '70%' }} />
+              <div className="skeleton" style={{ height: 18, width: '45%' }} />
+            </div>
+          ) : (
+            <>
+              <table className="admin-table">
+                <tbody>
+                  <InfoRow label="状态">
+                    {ai.source === 'none' ? (
+                      <span className="status-dot err">未配置</span>
+                    ) : (
+                      <span className="status-dot ok">{ai.source === 'db' ? '界面配置生效中' : '环境变量生效中'}</span>
+                    )}
+                  </InfoRow>
+                  <InfoRow label="模型端点">
+                    <span className="mono" style={{ fontSize: 12.5 }}>{ai.baseUrl || '—'}</span>
+                  </InfoRow>
+                  <InfoRow label="模型">
+                    <span className="mono" style={{ fontSize: 12.5 }}>{ai.model || '（端点默认）'}</span>
+                  </InfoRow>
+                </tbody>
+              </table>
+
+              <form onSubmit={saveAi} style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+                <input
+                  className="input mono"
+                  style={{ fontSize: 12.5 }}
+                  placeholder="模型端点 BASE_URL，如 https://llm.example.com"
+                  aria-label="AI 端点"
+                  value={aiForm.aiBaseUrl}
+                  onChange={(e) => setAiForm({ ...aiForm, aiBaseUrl: e.target.value })}
+                />
+                <input
+                  className="input mono"
+                  style={{ fontSize: 12.5 }}
+                  placeholder="API Key"
+                  aria-label="AI API Key"
+                  type="password"
+                  value={aiForm.aiApiKey}
+                  onChange={(e) => setAiForm({ ...aiForm, aiApiKey: e.target.value })}
+                />
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <input
+                    className="input mono"
+                    style={{ flex: 1, minWidth: 200, fontSize: 12.5 }}
+                    placeholder="模型名（可选，留空用端点默认）"
+                    aria-label="模型名"
+                    value={aiForm.aiModel}
+                    onChange={(e) => setAiForm({ ...aiForm, aiModel: e.target.value })}
+                  />
+                  <input
+                    className="input mono"
+                    style={{ flex: 1, minWidth: 200, fontSize: 12.5 }}
+                    placeholder="claude CLI 路径（可选，默认 PATH 查找）"
+                    aria-label="CLI 路径"
+                    value={aiForm.aiCliPath}
+                    onChange={(e) => setAiForm({ ...aiForm, aiCliPath: e.target.value })}
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn" type="submit" disabled={aiSaving}>
+                    {aiSaving ? <span className="spinner" /> : <Check size={13} />}
+                    保存
+                  </button>
+                  <button className="btn btn-ghost" type="button" onClick={testAi} disabled={aiTesting}>
+                    {aiTesting ? <span className="spinner" /> : <RefreshCw size={13} />}
+                    测试连接
+                  </button>
+                </div>
+              </form>
+              <p className="muted" style={{ fontSize: 12, marginTop: 10, marginBottom: 0, lineHeight: 1.7 }}>
+                对话由部署机上的 Claude Code（Agent SDK）驱动，模型在文档库中只读检索。界面配置优先于
+                AI_BASE_URL / AI_API_KEY / ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN 环境变量；清空某项即回退环境变量。
               </p>
             </>
           )}

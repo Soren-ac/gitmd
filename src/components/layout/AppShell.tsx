@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react'
 import TopNav from '@/components/layout/TopNav'
 import Sidebar from '@/components/layout/Sidebar'
+import ChatWidget from '@/components/chat/ChatWidget'
 import type { TreeNode } from '@/lib/content/docs'
 
 interface Props {
@@ -74,6 +75,7 @@ export default function AppShell({ tree, user, repoReady, children }: Props) {
       {/* 拖拽调宽手柄：对齐侧边栏右缘 */}
       <div className="sidebar-resizer" onPointerDown={onResizeStart} aria-hidden />
       <main className="main-content">{children}</main>
+      <ChatWidget />
     </>
   )
 }
