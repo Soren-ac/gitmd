@@ -7,6 +7,7 @@ import CodeMirror from '@uiw/react-codemirror'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { languages } from '@codemirror/language-data'
 import { EditorView } from '@codemirror/view'
+import type { ViewUpdate } from '@codemirror/view'
 import {
   ArrowLeft,
   Check,
@@ -18,7 +19,9 @@ import {
   PenLine,
   Save,
   Sigma,
+  Sparkles,
   SquareChartGantt,
+  X,
 } from 'lucide-react'
 import { joinFrontmatter, splitFrontmatter } from '@/lib/markdown/frontmatter'
 import { copyText } from '@/lib/clipboard'
@@ -51,6 +54,127 @@ export default function Editor({ path, docDir, initialFrontmatter, initialBody, 
   const [localizing, setLocalizing] = useState(false)
   // 外链图片转存改写内容后自增，强制 Wysiwyg 重挂载以显示新内容（Crepe 仅挂载时读 initialValue）
   const [gen, setGen] = useState(0)
+
+  // ------- AI 辅助（选区文字变换） -------
+  interface AssistState {
+    action: string
+    label: string
+    from: number
+    to: number
+    running: boolean
+    result: string
+    error: string
+  }
+  interface SelPos {
+    from: number
+    to: number
+    text: string
+    x: number
+    y: number
+  }
+  const [aiOn, setAiOn] = useState(false)
+  const [selPos, setSelPos] = useState<SelPos | null>(null)
+  const [assist, setAssist] = useState<AssistState | null>(null)
+  const assistAbort = useRef<AbortController | null>(null)
+
+  useEffect(() => {
+    fetch('/api/chat/status')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setAiOn(Boolean(d?.enabled)))
+      .catch(() => {})
+  }, [])
+
+  /** CodeMirror 选区跟踪：非空选区时给浮动工具条定位 */
+  function onEditorUpdate(vu: ViewUpdate) {
+    const s = vu.state.selection.main
+    if (s.empty || mode !== 'source') {
+      setSelPos(null)
+      return
+    }
+    const text = vu.state.sliceDoc(s.from, s.to)
+    if (!text.trim()) {
+      setSelPos(null)
+      return
+    }
+    const coords = vu.view.coordsAtPos(s.to)
+    if (!coords) {
+      setSelPos(null)
+      return
+    }
+    const x = Math.min(Math.max(8, coords.left - 60), window.innerWidth - 380)
+    setSelPos({ from: s.from, to: s.to, text, x, y: coords.bottom + 6 })
+  }
+
+  const ASSIST_BTNS = [
+    ['polish', '润色'],
+    ['continue', '续写'],
+    ['translate', '翻译'],
+    ['title', '起标题'],
+    ['summary', '总结'],
+  ] as const
+
+  async function runAssist(action: (typeof ASSIST_BTNS)[number][0], label: string) {
+    if (!selPos || assist?.running) return
+    const { from, to, text } = selPos
+    assistAbort.current = new AbortController()
+    const st: AssistState = { action, label, from, to, running: true, result: '', error: '' }
+    setAssist(st)
+    setSelPos(null)
+    try {
+      const res = await fetch('/api/ai/assist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, text }),
+        signal: assistAbort.current.signal,
+      })
+      if (!res.ok || !res.body) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error ?? '请求失败')
+      }
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        const lines = buf.split('\n')
+        buf = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.trim()) continue
+          const ev = JSON.parse(line)
+          if (ev.type === 'delta') {
+            setAssist((a) => (a ? { ...a, result: a.result + (ev.newBlock && a.result ? '\n\n' : '') + ev.text } : a))
+          } else if (ev.type === 'error') {
+            throw new Error(ev.error)
+          }
+        }
+      }
+      setAssist((a) => (a ? { ...a, running: false } : a))
+    } catch (err) {
+      setAssist((a) =>
+        a ? { ...a, running: false, error: err instanceof Error ? err.message : '生成失败' } : a,
+      )
+    }
+  }
+
+  function applyAssist(mode_: 'replace' | 'insert') {
+    const view = viewRef.current
+    if (!view || !assist?.result.trim()) return
+    if (mode_ === 'replace') {
+      view.dispatch({ changes: { from: assist.from, to: assist.to, insert: assist.result.trim() } })
+    } else {
+      view.dispatch({ changes: { from: assist.to, insert: '\n\n' + assist.result.trim() } })
+    }
+    view.focus()
+    setAssist(null)
+  }
+
+  function closeAssist() {
+    assistAbort.current?.abort()
+    setAssist(null)
+  }
+
   const [status, setStatus] = useState('')
   const [statusTone, setStatusTone] = useState<'ok' | 'err' | 'info'>('info')
   const [commitMsg, setCommitMsg] = useState('')
@@ -276,8 +400,7 @@ export default function Editor({ path, docDir, initialFrontmatter, initialBody, 
   }, [save])
 
   // ------- 图片粘贴/拖拽上传 -------
-  async function uploadFiles(files: FileList | File[]) {
-    for (const file of Array.from(files)) {
+  async function uploadFiles(files: FileList | File[]) {    for (const file of Array.from(files)) {
       if (!file.type.startsWith('image/')) continue
       setStatus(`上传图片 ${file.name}…`)
       setStatusTone('info')
@@ -520,6 +643,7 @@ export default function Editor({ path, docDir, initialFrontmatter, initialBody, 
                 <CodeMirror
                   value={body}
                   onChange={setBody}
+                  onUpdate={onEditorUpdate}
                   extensions={[markdown({ base: markdownLanguage, codeLanguages: languages }), EditorView.lineWrapping]}
                   onCreateEditor={(view) => {
                     viewRef.current = view
@@ -556,6 +680,58 @@ export default function Editor({ path, docDir, initialFrontmatter, initialBody, 
           </div>
         )}
       </div>
+
+      {/* AI 辅助：选区浮动工具条 */}
+      {aiOn && selPos && !assist && (
+        <div className="assist-toolbar" style={{ left: selPos.x, top: selPos.y }}>
+          <span className="assist-toolbar-label">
+            <Sparkles size={12} />
+            AI
+          </span>
+          {ASSIST_BTNS.map(([key, label]) => (
+            <button key={key} className="assist-toolbar-btn" onClick={() => runAssist(key, label)}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* AI 辅助：结果面板 */}
+      {assist && (
+        <div className="assist-panel">
+          <div className="assist-panel-head">
+            <span>
+              <Sparkles size={13} />
+              {assist.label}
+              {assist.running && '（生成中…）'}
+            </span>
+            <button className="btn btn-icon" style={{ width: 22, height: 22 }} aria-label="关闭" onClick={closeAssist}>
+              <X size={13} />
+            </button>
+          </div>
+          <div className="assist-panel-body">
+            {assist.result ? assist.result : <span className="muted">正在生成…</span>}
+            {assist.error && <div className="chat-error">{assist.error}</div>}
+          </div>
+          <div className="assist-panel-actions">
+            <button className="btn btn-sm btn-primary" onClick={() => applyAssist('replace')} disabled={assist.running || !assist.result.trim()}>
+              替换选中
+            </button>
+            <button className="btn btn-sm" onClick={() => applyAssist('insert')} disabled={assist.running || !assist.result.trim()}>
+              插入其后
+            </button>
+            <button
+              className="btn btn-sm btn-ghost"
+              onClick={() => {
+                copyText(assist.result)
+              }}
+              disabled={!assist.result.trim()}
+            >
+              复制
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

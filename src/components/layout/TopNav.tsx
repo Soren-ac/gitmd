@@ -4,11 +4,13 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
+  Bell,
   Check,
   GitBranch,
   Link2,
   LogOut,
   Menu,
+  MessageSquareText,
   Moon,
   PanelLeft,
   Pencil,
@@ -36,6 +38,15 @@ interface SyncState {
   state: { last_sync_at: string | null; last_status: string | null; last_head: string | null } | null
 }
 
+interface MentionItem {
+  annotationId: string
+  doc: string
+  quote: string
+  author: string
+  body: string
+  at: string
+}
+
 function relTime(iso: string | null | undefined): string {
   if (!iso) return ''
   const diff = Date.now() - new Date(iso + 'Z').getTime()
@@ -55,7 +66,10 @@ export default function TopNav({ user, onMenuClick, onToggleSidebar }: Props) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [sync, setSync] = useState<SyncState | null>(null)
   const [theme, setTheme] = useState<'dark' | 'light'>('light')
+  const [mentions, setMentions] = useState<{ count: number; items: MentionItem[] } | null>(null)
+  const [mentionOpen, setMentionOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+  const mentionRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect -- 主题存在 DOM data 属性上，挂载后同步一次 */
@@ -91,9 +105,25 @@ export default function TopNav({ user, onMenuClick, onToggleSidebar }: Props) {
     }
   }, [])
 
+  // 未读提及轮询
+  useEffect(() => {
+    let stopped = false
+    async function load() {
+      const res = await fetch('/api/annotations/mentions')
+      if (res.ok && !stopped) setMentions(await res.json())
+    }
+    load()
+    const timer = setInterval(load, 30_000)
+    return () => {
+      stopped = true
+      clearInterval(timer)
+    }
+  }, [])
+
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
+      if (mentionRef.current && !mentionRef.current.contains(e.target as Node)) setMentionOpen(false)
     }
     document.addEventListener('mousedown', onClick)
     return () => document.removeEventListener('mousedown', onClick)
@@ -171,12 +201,70 @@ export default function TopNav({ user, onMenuClick, onToggleSidebar }: Props) {
             <Sparkles size={13} />
             文档助手
           </Link>
+          <Link className="btn btn-icon" href="/annotations" title="批注中心" aria-label="批注中心">
+            <MessageSquareText size={15} />
+          </Link>
           {editHref && (
             <Link className="btn btn-sm" href={editHref}>
               <Pencil size={13} />
               编辑
             </Link>
           )}
+
+          {/* 批注提及铃铛 */}
+          <div className="user-menu-wrap" ref={mentionRef}>
+            <button
+              className="btn btn-icon mention-btn"
+              aria-label="批注提及"
+              title="批注提及"
+              onClick={() => setMentionOpen((v) => !v)}
+            >
+              <Bell size={15} />
+              {(mentions?.count ?? 0) > 0 && <span className="mention-badge">{mentions!.count}</span>}
+            </button>
+            {mentionOpen && (
+              <div className="user-menu mention-menu">
+                <div className="user-menu-head">
+                  批注提及
+                  {(mentions?.count ?? 0) > 0 && <span className="role-badge">{mentions!.count} 条未读</span>}
+                </div>
+                {(mentions?.items.length ?? 0) === 0 && (
+                  <div className="mention-empty">暂无 @ 你的批注</div>
+                )}
+                {(mentions?.items ?? []).map((m, i) => (
+                  <button
+                    key={`${m.annotationId}-${i}`}
+                    className="user-menu-item mention-item"
+                    onClick={async () => {
+                      setMentionOpen(false)
+                      setMentions({ count: 0, items: [] })
+                      fetch('/api/annotations/mentions', { method: 'POST' }).catch(() => {})
+                      router.push('/docs/' + m.doc.replace(/\.mdx?$/i, '').split('/').map(encodeURIComponent).join('/'))
+                    }}
+                  >
+                    <span className="mention-item-body">
+                      <strong>{m.author}</strong> 在「{m.doc.replace(/\.mdx?$/i, '')}」提及你
+                      <span className="mention-item-text">{m.body.slice(0, 80)}</span>
+                    </span>
+                  </button>
+                ))}
+                {(mentions?.count ?? 0) > 0 && (
+                  <Link
+                    href="/annotations"
+                    className="user-menu-item"
+                    onClick={() => {
+                      setMentionOpen(false)
+                      setMentions({ count: 0, items: [] })
+                      fetch('/api/annotations/mentions', { method: 'POST' }).catch(() => {})
+                    }}
+                  >
+                    前往批注中心查看全部
+                  </Link>
+                )}
+              </div>
+            )}
+          </div>
+
           <button className="btn btn-icon" onClick={copyLink} aria-label="复制页面链接" title="复制链接">
             <Link2 size={15} />
           </button>
@@ -204,6 +292,10 @@ export default function TopNav({ user, onMenuClick, onToggleSidebar }: Props) {
                   {user.username}
                   {user.role === 'admin' && <span className="role-badge">ADMIN</span>}
                 </div>
+                <Link href="/annotations" className="user-menu-item" onClick={() => setMenuOpen(false)}>
+                  <MessageSquareText size={14} />
+                  批注中心
+                </Link>
                 <Link href="/settings" className="user-menu-item" onClick={() => setMenuOpen(false)}>
                   <UserCog size={14} />
                   Git 身份设置

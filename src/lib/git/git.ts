@@ -5,13 +5,14 @@ import { config } from '@/lib/core/config'
 import { invalidateTreeCache } from '@/lib/content/docs'
 
 export class ConflictError extends Error {
-  constructor(
-    message: string,
-    public readonly currentContent?: string,
-    public readonly currentHash?: string,
-  ) {
+  readonly currentContent?: string
+  readonly currentHash?: string
+
+  constructor(message: string, currentContent?: string, currentHash?: string) {
     super(message)
     this.name = 'ConflictError'
+    this.currentContent = currentContent
+    this.currentHash = currentHash
   }
 }
 

@@ -10,6 +10,7 @@ import {
 } from '@/lib/core/db'
 import { resolveSafe } from '@/lib/content/docs'
 import { aiEnabled, streamChat } from '@/lib/ai/chat'
+import { runWithLimit } from '@/lib/ai/limiter'
 
 /** 把前端给的文档路径解析为仓库内真实存在的 md 文件（支持目录 README 形式）；无效返回 null */
 function resolveDocPath(input: unknown): string | null {
@@ -74,27 +75,33 @@ export async function POST(req: Request) {
       send({ type: 'meta', conversationId: conv.id })
       const parts: string[] = []
       let doneText = ''
-      try {
-        for await (const ev of streamChat(promptText, sessionId, req.signal)) {
-          if (ev.type === 'session') {
-            setConversationSession(conv.id, ev.sessionId)
-          } else if (ev.type === 'delta') {
-            parts.push(ev.text)
-          } else if (ev.type === 'done') {
-            doneText = ev.fullText
-          } else if (ev.type === 'error') {
-            console.error('[gitmd] AI 对话失败:', ev.error)
+      // 限流：同用户串行、全局并发上限；排队时先告知前端
+      await runWithLimit(
+        user.id,
+        () => send({ type: 'activity', text: '排队中，前面的回答完成后开始…' }),
+        async () => {
+          try {
+            for await (const ev of streamChat(promptText, sessionId, req.signal)) {
+              if (ev.type === 'session') {
+                setConversationSession(conv.id, ev.sessionId)
+              } else if (ev.type === 'delta') {
+                parts.push(ev.text)
+              } else if (ev.type === 'done') {
+                doneText = ev.fullText
+              } else if (ev.type === 'error') {
+                console.error('[gitmd] AI 对话失败:', ev.error)
+              }
+              send(ev)
+            }
+          } catch (err) {
+            send({ type: 'error', error: err instanceof Error ? err.message : '对话失败' })
           }
-          send(ev)
-        }
-      } catch (err) {
-        send({ type: 'error', error: err instanceof Error ? err.message : '对话失败' })
-      } finally {
-        // 出错/中止也保留已生成的部分内容；完整文本优先用 done 的汇总（块边界已正确计入）
-        const content = doneText || parts.join('')
-        if (content) addChatMessage(conv.id, 'assistant', content)
-        controller.close()
-      }
+        },
+      )
+      // 出错/中止也保留已生成的部分内容；完整文本优先用 done 的汇总（块边界已正确计入）
+      const content = doneText || parts.join('')
+      if (content) addChatMessage(conv.id, 'assistant', content)
+      controller.close()
     },
   })
   return new Response(stream, {

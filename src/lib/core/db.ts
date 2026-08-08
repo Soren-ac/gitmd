@@ -56,7 +56,7 @@ function createDb(): Database.Database {
       path UNINDEXED,
       title,
       content,
-      tokenize = 'unicode61'
+      tokenize = 'trigram'
     );
   `)
   // 迁移：users 表增加 git 身份列

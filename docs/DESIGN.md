@@ -162,6 +162,10 @@ CREATE TABLE settings (
 | GET | /api/chat/status | AI 是否已配置（决定前端入口显隐） |
 | GET | /api/chat/conversations | 当前用户会话列表 |
 | GET/DELETE | /api/chat/conversations/[id] | 会话消息 / 删除（仅本人） |
+| POST | /api/ai/assist | 编辑器选区 AI 变换（润色/续写/翻译/起标题/总结，无工具单轮） |
+| GET | /api/annotations/all?status= | 全库批注列表（批注中心） |
+| GET/POST | /api/annotations/mentions | 未读 @提及 / 标记已读 |
+| GET/POST | /api/admin/assets | 扫描未引用 assets / 清理孤儿文件（admin） |
 
 约定：所有写操作返回 `{ ok: true, head }` 或 `{ ok: false, error }`；冲突返回 HTTP 409。
 

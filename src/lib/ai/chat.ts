@@ -72,15 +72,15 @@ function describeTool(name: string, input: unknown): string {
 
 const QUERY_TIMEOUT_MS = 180_000
 
-/**
- * 流式发起一轮对话。sessionId 为空时开新会话（init 事件里拿到新 id）。
- * signal 中止（客户端断连）时取消底层查询。
- */
-export async function* streamChat(
-  message: string,
-  sessionId: string | null,
-  signal: AbortSignal,
-): AsyncGenerator<ChatEvent> {
+interface QueryOpts {
+  sessionId?: string | null
+  allowedTools: string[]
+  maxTurns: number
+  systemAppend: string
+}
+
+/** 底层流式查询：逐 token 增量（不支持时回退整段），块边界按工具调用判定 */
+async function* runQuery(prompt: string, opts: QueryOpts, signal: AbortSignal): AsyncGenerator<ChatEvent> {
   const ai = getAiConfig()
 
   // SDK 的 env 是整体替换子进程环境，必须展开 process.env 再覆盖 Anthropic 端点
@@ -99,15 +99,15 @@ export async function* streamChat(
   let finished = false
   try {
     const q = query({
-      prompt: message,
+      prompt,
       options: {
         cwd: config.repoDir,
-        allowedTools: ['Read', 'Grep', 'Glob'],
+        allowedTools: opts.allowedTools,
         permissionMode: 'dontAsk', // 未经预批的工具一律拒绝——只读保障
         includePartialMessages: true, // 逐 token 流式（model/网关不支持时自动退化到整段）
-        ...(sessionId ? { resume: sessionId } : {}),
-        systemPrompt: { type: 'preset', preset: 'claude_code', append: SYSTEM_APPEND },
-        maxTurns: 10,
+        ...(opts.sessionId ? { resume: opts.sessionId } : {}),
+        systemPrompt: { type: 'preset', preset: 'claude_code', append: opts.systemAppend },
+        maxTurns: opts.maxTurns,
         abortController: abort,
         env,
         ...(ai.cliPath ? { pathToClaudeCodeExecutable: ai.cliPath } : {}),
@@ -185,6 +185,60 @@ export async function* streamChat(
     clearTimeout(timer)
     signal.removeEventListener('abort', onOuterAbort)
   }
+}
+
+/**
+ * 流式发起一轮对话。sessionId 为空时开新会话（init 事件里拿到新 id）。
+ * signal 中止（客户端断连）时取消底层查询。
+ */
+export async function* streamChat(
+  message: string,
+  sessionId: string | null,
+  signal: AbortSignal,
+): AsyncGenerator<ChatEvent> {
+  yield* runQuery(
+    message,
+    { sessionId, allowedTools: ['Read', 'Grep', 'Glob'], maxTurns: 10, systemAppend: SYSTEM_APPEND },
+    signal,
+  )
+}
+
+/* ---------------- 编辑器 AI 辅助：无工具纯文字变换 ---------------- */
+
+export type AssistAction = 'polish' | 'continue' | 'translate' | 'title' | 'summary'
+
+export const ASSIST_ACTIONS: Record<AssistAction, { label: string; prompt: (text: string) => string }> = {
+  polish: {
+    label: '润色',
+    prompt: (t) => `把下面的 Markdown 文字润色得更通顺、专业，保持原意与 Markdown 格式，直接输出改写后的文字本身，不要任何解释：\n\n${t}`,
+  },
+  continue: {
+    label: '续写',
+    prompt: (t) => `接着下面的 Markdown 文字继续写，风格与上下文一致，直接输出续写内容本身，不要任何解释：\n\n${t}`,
+  },
+  translate: {
+    label: '翻译',
+    prompt: (t) => `把下面的 Markdown 文字翻译（中文→英文，英文→中文），保持 Markdown 格式，直接输出译文本身，不要任何解释：\n\n${t}`,
+  },
+  title: {
+    label: '起标题',
+    prompt: (t) => `给下面的 Markdown 文字起 5 个简洁贴切的标题候选，每行一个，直接输出，不要任何解释：\n\n${t}`,
+  },
+  summary: {
+    label: '总结',
+    prompt: (t) => `用不超过 3 句话总结下面的 Markdown 文字，直接输出总结本身，不要任何解释：\n\n${t}`,
+  },
+}
+
+const ASSIST_APPEND = `你是文字变换工具：严格按用户指令处理给定文字，直接输出结果本身——不解释、不引用、不使用任何工具。`
+
+/** 编辑器 AI 辅助：单轮、无工具、纯文字变换 */
+export async function* streamAssist(action: AssistAction, text: string, signal: AbortSignal): AsyncGenerator<ChatEvent> {
+  yield* runQuery(
+    ASSIST_ACTIONS[action].prompt(text),
+    { allowedTools: [], maxTurns: 2, systemAppend: ASSIST_APPEND },
+    signal,
+  )
 }
 
 /** 管理界面「测试连接」：最小化真实调用验证端点/密钥/CLI 可用 */

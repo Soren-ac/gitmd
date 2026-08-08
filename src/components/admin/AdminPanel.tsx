@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Check, Copy, Dices, KeyRound, RefreshCw, Sparkles, Trash2, UserPlus, Users, Database, Webhook } from 'lucide-react'
+import { Check, Copy, Dices, KeyRound, RefreshCw, ScanSearch, Sparkles, Trash2, UserPlus, Users, Database, Webhook } from 'lucide-react'
 import { useToast } from '@/components/common/Toast'
 import { useDialog } from '@/components/common/Dialog'
 import { copyText as copyToClipboard } from '@/lib/clipboard'
@@ -66,6 +66,53 @@ export default function AdminPanel({ currentUserId }: { currentUserId: number })
   const [aiForm, setAiForm] = useState({ aiBaseUrl: '', aiApiKey: '', aiModel: '', aiCliPath: '' })
   const [aiSaving, setAiSaving] = useState(false)
   const [aiTesting, setAiTesting] = useState(false)
+  const [scan, setScan] = useState<{
+    total: number
+    totalSize: number
+    orphans: { rel: string; size: number; mtime: string }[]
+    orphanSize: number
+  } | null>(null)
+  const [scanning, setScanning] = useState(false)
+  const [cleaning, setCleaning] = useState(false)
+
+  function fmtSize(n: number) {
+    if (n < 1024) return `${n} B`
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+    return `${(n / 1024 / 1024).toFixed(1)} MB`
+  }
+
+  async function scanAssets() {
+    setScanning(true)
+    const res = await fetch('/api/admin/assets')
+    setScanning(false)
+    if (res.ok) setScan(await res.json())
+    else toast.push('error', '扫描失败')
+  }
+
+  async function cleanAssets() {
+    if (!scan || scan.orphans.length === 0) return
+    const ok = await dialog.confirm({
+      title: '清理未引用文件',
+      message: `将删除 ${scan.orphans.length} 个未被任何文档引用的文件（${fmtSize(scan.orphanSize)}），并立即提交推送到远端仓库。\n\n删除后只能通过 git 历史找回，确认继续？`,
+      confirmText: '删除并提交',
+      danger: true,
+    })
+    if (!ok) return
+    setCleaning(true)
+    const res = await fetch('/api/admin/assets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files: scan.orphans.map((o) => o.rel) }),
+    })
+    const data = await res.json().catch(() => ({}))
+    setCleaning(false)
+    if (res.ok) {
+      toast.push('success', `已清理 ${data.deleted} 个文件并推送`)
+      setScan(null)
+    } else {
+      toast.push('error', data.error ?? '清理失败')
+    }
+  }
 
   async function load() {
     const [s, u, c] = await Promise.all([fetch('/api/sync'), fetch('/api/admin/users'), fetch('/api/admin/config')])
@@ -473,6 +520,61 @@ export default function AdminPanel({ currentUserId }: { currentUserId: number })
                 AI_BASE_URL / AI_API_KEY / ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN 环境变量；清空某项即回退环境变量。
               </p>
             </>
+          )}
+        </div>
+      </section>
+
+      <section className="admin-section">
+        <h2>
+          <ScanSearch size={16} style={{ color: 'var(--text-tertiary)' }} />
+          仓库卫生
+        </h2>
+        <div className="card" style={{ maxWidth: 760, padding: '14px 16px' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button className="btn" onClick={scanAssets} disabled={scanning}>
+              {scanning ? <span className="spinner" /> : <ScanSearch size={13} />}
+              扫描未引用文件
+            </button>
+            {scan && (
+              <span className="muted" style={{ fontSize: 12.5 }}>
+                assets/ 共 {scan.total} 个文件（{fmtSize(scan.totalSize)}）
+              </span>
+            )}
+          </div>
+          {scan && (
+            <div style={{ marginTop: 12 }}>
+              {scan.orphans.length === 0 ? (
+                <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>没有发现未引用的孤儿文件，仓库很干净。</p>
+              ) : (
+                <>
+                  <table className="admin-table" style={{ marginBottom: 10 }}>
+                    <thead>
+                      <tr>
+                        <th>文件</th>
+                        <th style={{ width: 90 }}>大小</th>
+                        <th style={{ width: 120 }}>修改时间</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {scan.orphans.slice(0, 50).map((o) => (
+                        <tr key={o.rel}>
+                          <td className="mono" style={{ fontSize: 12 }}>{o.rel}</td>
+                          <td className="muted">{fmtSize(o.size)}</td>
+                          <td className="muted">{new Date(o.mtime).toLocaleDateString('zh-CN')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {scan.orphans.length > 50 && (
+                    <p className="muted" style={{ fontSize: 12 }}>…共 {scan.orphans.length} 个，仅显示前 50 个</p>
+                  )}
+                  <button className="btn btn-danger-solid" onClick={cleanAssets} disabled={cleaning}>
+                    {cleaning ? <span className="spinner" /> : <Trash2 size={13} />}
+                    清理 {scan.orphans.length} 个孤儿文件（{fmtSize(scan.orphanSize)}）
+                  </button>
+                </>
+              )}
+            </div>
           )}
         </div>
       </section>
