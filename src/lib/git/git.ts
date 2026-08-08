@@ -217,6 +217,48 @@ export async function diffBetween(relPath: string, from: string, to: string): Pr
   return git.raw(['diff', `${from}..${to}`, '--', relPath])
 }
 
+export interface ChangedFile {
+  status: 'A' | 'M' | 'D' | 'R' | string
+  path: string
+  oldPath?: string // 重命名前的路径（status = R 时）
+}
+
+export interface ChangeEntry extends LogEntry {
+  files: ChangedFile[]
+}
+
+/**
+ * 全库最近变更流：跨仓库的 git log --name-status，只跟 md 文档
+ * （pathspec '*.md' 递归匹配，天然排除 .gitmd/ 下的批注 sidecar 与 assets）。
+ * 返回按提交分组、时间倒序的条目。
+ */
+export async function recentChanges(max = 30): Promise<ChangeEntry[]> {
+  const out = await git.raw([
+    'log',
+    `--max-count=${max}`,
+    '--format=%x1e%H%x1f%h%x1f%an%x1f%ad%x1f%s',
+    '--date=iso',
+    '--name-status',
+    '--',
+    '*.md',
+  ])
+  const entries: ChangeEntry[] = []
+  for (const rec of out.split('\x1e')) {
+    const trimmed = rec.trim()
+    if (!trimmed) continue
+    const [head, ...fileLines] = trimmed.split('\n').filter(Boolean)
+    const [hash, abbrev, author, date, message] = head.split('\x1f')
+    const files: ChangedFile[] = []
+    for (const line of fileLines) {
+      const [status, ...rest] = line.split('\t')
+      if (status.startsWith('R')) files.push({ status: 'R', oldPath: rest[0], path: rest[1] })
+      else files.push({ status, path: rest[0] })
+    }
+    entries.push({ hash, abbrev, author, date, message, files })
+  }
+  return entries
+}
+
 export async function showAtCommit(relPath: string, ref: string): Promise<string> {
   return git.raw(['show', `${ref}:${relPath}`])
 }

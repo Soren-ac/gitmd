@@ -1406,6 +1406,45 @@ html.sidebar-dragging .sidebar { transition: none !important; }
   flex-shrink: 0;
 }
 .draft-banner-text { flex: 1; }
+
+/* 最近变更流 */
+.change-entry {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.change-entry-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.change-msg {
+  font-size: 14px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.change-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.change-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: border-color 140ms var(--ease), color 140ms var(--ease);
+}
+.change-file:hover { border-color: var(--accent); color: var(--accent); }
+.change-file.added { color: var(--success); }
+.change-file.deleted { color: var(--error); }
 .commit-msg-input {
   width: 240px;
   height: 28px;

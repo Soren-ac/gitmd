@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
+  Activity,
   Bell,
   Check,
   GitBranch,
@@ -200,6 +201,9 @@ export default function TopNav({ user, onMenuClick, onToggleSidebar }: Props) {
           <Link className="btn btn-sm" href="/chat" title="文档助手">
             <Sparkles size={13} />
             文档助手
+          </Link>
+          <Link className="btn btn-icon" href="/recent" title="最近变更" aria-label="最近变更">
+            <Activity size={15} />
           </Link>
           <Link className="btn btn-icon" href="/annotations" title="批注中心" aria-label="批注中心">
             <MessageSquareText size={15} />
