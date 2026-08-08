@@ -250,6 +250,8 @@ remark-parse → remark-gfm → remark-frontmatter → remark-math
 由部署机上的 Claude Code（Agent SDK）驱动：每条消息 spawn 一个只读 agent（`allowedTools: [Read, Grep, Glob]`，`permissionMode: dontAsk`），cwd 指向文档仓库，模型自行检索/阅读文档作答，答案引用以 markdown 链接跳回 `/docs/*`。
 
 - **多轮**：会话表存 Claude `session_id`，后续轮 `resume` 续上下文
+- **检索增强**：提问先按词过 FTS5 全文索引（逐词搜索后按命中词数+排名聚合），候选文档作为【检索线索】注入 prompt，引导 agent 优先精读而非全库 Grep 起步——省 token、提速；线索仅发给模型，用户可见消息保持原文
+- **并发控制**：同一用户串行、全局最多 4 路并行，超出排队（`lib/ai/limiter.ts`）
 - **模型端点可配**：管理界面（settings 表 `ai_*`）> `AI_*` 环境变量 > `ANTHROPIC_*` 环境变量；更换模型/网关只改配置
 - **流式**：SDK 事件 → NDJSON（`meta`/`session`/`activity`（正在读哪个文件）/`delta`/`done`/`error`）
 - **前端**：右下角悬浮抽屉 + `/chat` 独立页共用 `ChatUI`；助手答案完成后经 `/api/preview` 复用文档渲染管线排版；所有登录用户可用，会话按用户隔离

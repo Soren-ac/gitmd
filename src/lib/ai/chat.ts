@@ -2,6 +2,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk'
 import path from 'node:path'
 import { config } from '@/lib/core/config'
 import { getSetting } from '@/lib/core/db'
+import { searchDocs, type SearchResult } from '@/lib/search/search'
 
 /* ============================================================
  * AI 对话后端：Claude Code Agent SDK 驱动，模型端点可配。
@@ -43,9 +44,10 @@ const SYSTEM_APPEND = `你是 GitMD 文档平台内置的文档助手。当前�
 规则：
 1. 用中文回答，简洁、准确、有条理。
 2. 回答前先用 Glob/Grep/Read 在仓库中检索并阅读相关文档；答案必须基于文档内容。找不到相关内容时明确说「文档中暂无相关内容」，不要编造。
-3. 引用来源时使用 markdown 链接：[文档标题](仓库相对路径.md)，例如 [部署指南](guide/deployment.md)。
-4. 你只有只读工具：不要创建、修改或删除任何文件，不要执行写操作。
-5. 用户可能用「它/这篇/那个」指代上文提到的文档，结合多轮上下文理解。`
+3. 若问题附带了【检索线索】，那是全文索引搜出的候选文档，优先 Read 它们确认是否切题，切题就基于其内容作答，必要时再用 Grep/Glob 扩大范围。
+4. 引用来源时使用 markdown 链接：[文档标题](仓库相对路径.md)，例如 [部署指南](guide/deployment.md)。
+5. 你只有只读工具：不要创建、修改或删除任何文件，不要执行写操作。
+6. 用户可能用「它/这篇/那个」指代上文提到的文档，结合多轮上下文理解。`
 
 export type ChatEvent =
   | { type: 'delta'; text: string; newBlock?: boolean }
@@ -188,6 +190,46 @@ async function* runQuery(prompt: string, opts: QueryOpts, signal: AbortSignal): 
 }
 
 /**
+ * 检索增强：提问先过一遍 FTS5 全文索引，把候选文档作为线索注入 prompt，
+ * 引导 agent 优先精读这几篇而不是从全库 Grep 开始摸索——省 token 且更快。
+ * 自然语言提问含大量虚词，searchDocs 的多词 AND 语义对整句往往零命中；
+ * 这里按词逐个搜索再按「命中词数 + 排名」聚合，与问答场景更匹配。
+ * 搜索失败（索引未建等）不阻断对话，返回空串。
+ */
+export function retrievalHints(message: string): string {
+  try {
+    const terms = [
+      ...new Set(
+        message
+          .split(/[\s，。？！、；：,.?!;:"'“”‘’（）()【】[\]<>《》…—-]+/)
+          .filter((t) => [...t].length >= 2 && [...t].length <= 30),
+      ),
+    ].slice(0, 6)
+    const scores = new Map<string, { hit: SearchResult; terms: number; rank: number }>()
+    for (const t of terms) {
+      for (const [i, hit] of searchDocs(t, 5).entries()) {
+        const cur = scores.get(hit.path)
+        if (cur) {
+          cur.terms++
+          cur.rank = Math.min(cur.rank, i)
+        } else {
+          scores.set(hit.path, { hit, terms: 1, rank: i })
+        }
+      }
+    }
+    const top = [...scores.values()].sort((a, b) => b.terms - a.terms || a.rank - b.rank).slice(0, 5)
+    if (top.length === 0) return ''
+    const lines = top.map(({ hit }) => {
+      const snippet = hit.snippet.replace(/<\/?mark>/g, '').replace(/\s+/g, ' ').slice(0, 120)
+      return `- ${hit.path}（${hit.title}）：${snippet}`
+    })
+    return `\n\n【检索线索】以下文档可能与问题相关（按相关度排序）：\n${lines.join('\n')}`
+  } catch {
+    return ''
+  }
+}
+
+/**
  * 流式发起一轮对话。sessionId 为空时开新会话（init 事件里拿到新 id）。
  * signal 中止（客户端断连）时取消底层查询。
  */
@@ -197,7 +239,7 @@ export async function* streamChat(
   signal: AbortSignal,
 ): AsyncGenerator<ChatEvent> {
   yield* runQuery(
-    message,
+    message + retrievalHints(message),
     { sessionId, allowedTools: ['Read', 'Grep', 'Glob'], maxTurns: 10, systemAppend: SYSTEM_APPEND },
     signal,
   )
