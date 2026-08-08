@@ -13,7 +13,7 @@ fs.mkdirSync(path.join(repoDir, 'guide'), { recursive: true })
 fs.writeFileSync(path.join(repoDir, 'guide', 'deploy.md'), '# 部署指南\n\n平台的部署指南与配置说明，webhook 配置步骤。\n')
 fs.writeFileSync(path.join(repoDir, 'README.md'), '# GitMD\n\nAI 对话与文档管理。\n')
 
-const { rebuildSearchIndex, searchDocs, indexFile, removeFromIndex } = await import('../src/lib/search/search.ts')
+const { rebuildSearchIndex, searchDocs, countDocs, indexFile, removeFromIndex } = await import('../src/lib/search/search.ts')
 
 rebuildSearchIndex()
 
@@ -54,4 +54,40 @@ test('增量索引：更新与删除', () => {
   assert.ok(paths(searchDocs('xyzzy')).includes('new.md'))
   removeFromIndex('new.md')
   assert.equal(searchDocs('xyzzy').length, 0)
+})
+
+test('分页：offset 翻页覆盖全部结果，countDocs 与之一致', () => {
+  // 造 5 篇含同一独特词的文档，limit=2 翻 3 页
+  const created: string[] = []
+  for (let i = 0; i < 5; i++) {
+    const rel = `paged/doc${i}.md`
+    indexFile(rel, `分页文档${i}`, `共同关键词pagerword 第${i}篇`)
+    created.push(rel)
+  }
+  assert.equal(countDocs('pagerword'), 5)
+
+  const seen: string[] = []
+  for (let offset = 0; ; offset += 2) {
+    const rs = searchDocs('pagerword', 2, offset)
+    if (rs.length === 0) break
+    seen.push(...paths(rs))
+  }
+  assert.equal(seen.length, 5)
+  assert.deepEqual([...seen].sort(), created.sort())
+  // offset 越界返回空
+  assert.equal(searchDocs('pagerword', 2, 100).length, 0)
+
+  for (const rel of created) removeFromIndex(rel)
+  assert.equal(countDocs('pagerword'), 0)
+})
+
+test('分页：LIKE 兜底路径同样支持 offset 与计数', () => {
+  indexFile('like/a.md', '短词甲', '内容含 qq 甲')
+  indexFile('like/b.md', '短词乙', '内容含 qq 乙')
+  assert.equal(countDocs('qq'), 2)
+  assert.equal(searchDocs('qq', 1, 0).length, 1)
+  assert.equal(searchDocs('qq', 1, 1).length, 1)
+  assert.equal(searchDocs('qq', 1, 2).length, 0)
+  removeFromIndex('like/a.md')
+  removeFromIndex('like/b.md')
 })

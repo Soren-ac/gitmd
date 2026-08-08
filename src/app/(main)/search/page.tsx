@@ -1,16 +1,23 @@
 import Link from 'next/link'
-import { FileText, SearchX } from 'lucide-react'
-import { searchDocs } from '@/lib/search/search'
+import { ChevronLeft, ChevronRight, FileText, SearchX } from 'lucide-react'
+import { countDocs, searchDocs } from '@/lib/search/search'
 
 export const dynamic = 'force-dynamic'
 
+const PAGE_SIZE = 30
+
 interface Props {
-  searchParams: Promise<{ q?: string }>
+  searchParams: Promise<{ q?: string; offset?: string }>
 }
 
 export default async function SearchPage({ searchParams }: Props) {
-  const { q = '' } = await searchParams
-  const results = q ? searchDocs(q) : []
+  const { q = '', offset: offsetParam } = await searchParams
+  const offset = Math.max(0, Number(offsetParam) || 0)
+  const total = q ? countDocs(q) : 0
+  const results = q ? searchDocs(q, PAGE_SIZE, offset) : []
+  const page = Math.floor(offset / PAGE_SIZE) + 1
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const pageHref = (p: number) => `/search?q=${encodeURIComponent(q)}&offset=${(p - 1) * PAGE_SIZE}`
 
   return (
     <div className="doc-container">
@@ -18,7 +25,7 @@ export default async function SearchPage({ searchParams }: Props) {
         <h1>搜索</h1>
         {q && (
           <span className="muted">
-            “{q}” · {results.length} 条结果
+            “{q}” · 共 {total} 条结果
           </span>
         )}
       </div>
@@ -69,6 +76,41 @@ export default async function SearchPage({ searchParams }: Props) {
           />
         </div>
       ))}
+
+      {pageCount > 1 && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 16,
+            padding: '20px 0',
+            fontSize: 13.5,
+          }}
+        >
+          {page > 1 ? (
+            <Link href={pageHref(page - 1)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--accent)', textDecoration: 'none' }}>
+              <ChevronLeft size={14} /> 上一页
+            </Link>
+          ) : (
+            <span className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, opacity: 0.5 }}>
+              <ChevronLeft size={14} /> 上一页
+            </span>
+          )}
+          <span className="muted">
+            第 {page} / {pageCount} 页
+          </span>
+          {page < pageCount ? (
+            <Link href={pageHref(page + 1)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--accent)', textDecoration: 'none' }}>
+              下一页 <ChevronRight size={14} />
+            </Link>
+          ) : (
+            <span className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, opacity: 0.5 }}>
+              下一页 <ChevronRight size={14} />
+            </span>
+          )}
+        </div>
+      )}
     </div>
   )
 }

@@ -102,7 +102,44 @@ function makeSnippet(content: string, term: string, span = 40): string {
   )
 }
 
-export function searchDocs(query: string, limit = 30): SearchResult[] {
+/** 构造查询的 WHERE 子句与参数（FTS 路径与 LIKE 兜底共用，供结果查询与计数查询复用） */
+function buildWhere(query: string): { from: string; where: string; params: (string | number)[] } | null {
+  const terms = query.split(/\s+/).filter(Boolean)
+  if (terms.length === 0) return null
+  const long = terms.filter((t) => charLen(t) >= 3)
+  const short = terms.filter((t) => charLen(t) < 3)
+
+  if (long.length > 0) {
+    // 长词走 trigram 短语 MATCH，短词用 LIKE 追加过滤
+    const match = long.map((t) => `"${t.replace(/"/g, '')}"`).join(' ')
+    let where = 'doc_fts MATCH ?'
+    const params: (string | number)[] = [match]
+    for (const t of short) {
+      where += ` AND (content LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\')`
+      params.push(`%${escapeLike(t)}%`, `%${escapeLike(t)}%`)
+    }
+    return { from: 'doc_fts', where, params }
+  }
+
+  // 全是短词：纯 LIKE 兜底
+  const where = short.map(() => `(content LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\')`).join(' AND ')
+  const params = short.flatMap((t) => [`%${escapeLike(t)}%`, `%${escapeLike(t)}%`])
+  return { from: 'doc_fts', where, params }
+}
+
+/** 命中文档总数（分页用）；查询非法时返回 0 */
+export function countDocs(query: string): number {
+  const w = buildWhere(query)
+  if (!w) return 0
+  try {
+    const row = db.prepare(`SELECT count(*) AS n FROM ${w.from} WHERE ${w.where}`).get(...w.params) as { n: number }
+    return row.n
+  } catch {
+    return 0
+  }
+}
+
+export function searchDocs(query: string, limit = 30, offset = 0): SearchResult[] {
   const terms = query.split(/\s+/).filter(Boolean)
   if (terms.length === 0) return []
   const long = terms.filter((t) => charLen(t) >= 3)
@@ -110,30 +147,23 @@ export function searchDocs(query: string, limit = 30): SearchResult[] {
 
   try {
     if (long.length > 0) {
-      // 长词走 trigram 短语 MATCH，短词用 LIKE 追加过滤
-      const match = long.map((t) => `"${t.replace(/"/g, '')}"`).join(' ')
-      let sql = `SELECT path, title, snippet(doc_fts, 2, '<mark>', '</mark>', '…', 40) AS snippet
-                 FROM doc_fts WHERE doc_fts MATCH ?`
-      const params: (string | number)[] = [match]
-      for (const t of short) {
-        sql += ` AND (content LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\')`
-        params.push(`%${escapeLike(t)}%`, `%${escapeLike(t)}%`)
-      }
-      sql += ' ORDER BY rank LIMIT ?'
-      params.push(limit)
-      return db.prepare(sql).all(...params) as SearchResult[]
+      const w = buildWhere(query)
+      if (!w) return []
+      const sql = `SELECT path, title, snippet(doc_fts, 2, '<mark>', '</mark>', '…', 40) AS snippet
+                   FROM doc_fts WHERE ${w.where} ORDER BY rank LIMIT ? OFFSET ?`
+      return db.prepare(sql).all(...w.params, limit, offset) as SearchResult[]
     }
 
     // 全是短词：纯 LIKE 兜底，手工造 snippet；标题命中排前
     const first = short[0]
-    const where = short.map(() => `(content LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\')`).join(' AND ')
-    const params = short.flatMap((t) => [`%${escapeLike(t)}%`, `%${escapeLike(t)}%`])
+    const w = buildWhere(query)
+    if (!w) return []
     const rows = db
       .prepare(
-        `SELECT path, title, content FROM doc_fts WHERE ${where}
-         ORDER BY CASE WHEN title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END, path LIMIT ?`,
+        `SELECT path, title, content FROM doc_fts WHERE ${w.where}
+         ORDER BY CASE WHEN title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END, path LIMIT ? OFFSET ?`,
       )
-      .all(...params, `%${escapeLike(first)}%`, limit) as { path: string; title: string; content: string }[]
+      .all(...w.params, `%${escapeLike(first)}%`, limit, offset) as { path: string; title: string; content: string }[]
     return rows.map((r) => ({ path: r.path, title: r.title, snippet: makeSnippet(r.content, first) }))
   } catch {
     return []
