@@ -203,6 +203,69 @@ export default function Editor({ path, docDir, initialFrontmatter, initialBody, 
     dirtyRef.current = dirty
   }, [dirty])
 
+  // ------- 草稿自动保存（localStorage） -------
+  // 防止浏览器崩溃/误关丢失未保存内容：dirty 期间防抖写入，保存成功自动清除。
+  // 再次打开同一文档时发现草稿则提示恢复/丢弃；草稿恢复后保存仍走乐观锁，
+  // 文档在草稿期间被他人改过会正常收到 409 冲突提示。
+  interface Draft {
+    body: string
+    fm: string
+    savedAt: string
+  }
+  const draftKey = `gitmd:draft:${path}`
+  const [draft, setDraft] = useState<Draft | null>(null)
+
+  // 挂载时探测既有草稿；与服务器内容一致的草稿是保存成功的残留，直接清掉
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(draftKey)
+      if (!raw) return
+      const d = JSON.parse(raw) as Draft
+      if (typeof d.body === 'string' && (d.body !== initialBody || d.fm !== initialFrontmatter)) {
+        setDraft(d)
+      } else {
+        localStorage.removeItem(draftKey)
+      }
+    } catch {
+      // localStorage 不可用（隐私模式等）时静默跳过草稿功能
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // dirty 期间防抖写入；变干净（保存成功/放弃修改）时清除
+  useEffect(() => {
+    if (!dirty) {
+      try {
+        localStorage.removeItem(draftKey)
+      } catch {}
+      return
+    }
+    const timer = setTimeout(() => {
+      try {
+        const d: Draft = { body, fm: frontmatter, savedAt: new Date().toISOString() }
+        localStorage.setItem(draftKey, JSON.stringify(d))
+      } catch {}
+    }, 800)
+    return () => clearTimeout(timer)
+  }, [body, frontmatter, dirty, draftKey])
+
+  function restoreDraft() {
+    if (!draft) return
+    setBody(draft.body)
+    setFrontmatter(draft.fm)
+    setGen((g) => g + 1) // Wysiwyg 仅挂载时读 initialValue，重挂载以显示草稿内容
+    setDraft(null)
+    setStatus('已恢复草稿（尚未保存，保存后才会提交到仓库）')
+    setStatusTone('info')
+  }
+
+  function discardDraft() {
+    try {
+      localStorage.removeItem(draftKey)
+    } catch {}
+    setDraft(null)
+  }
+
   // 关闭/刷新页面前提醒
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
@@ -613,6 +676,20 @@ export default function Editor({ path, docDir, initialFrontmatter, initialBody, 
           </span>
         )}
       </div>
+
+      {draft && (
+        <div className="draft-banner" role="alert">
+          <span className="draft-banner-text">
+            发现 {new Date(draft.savedAt).toLocaleString('zh-CN')} 的未保存草稿
+          </span>
+          <button className="btn btn-sm btn-primary" onClick={restoreDraft}>
+            恢复草稿
+          </button>
+          <button className="btn btn-sm btn-ghost" onClick={discardDraft}>
+            丢弃
+          </button>
+        </div>
+      )}
 
       <div className="editor-fm">
         <details open={!!frontmatter}>
