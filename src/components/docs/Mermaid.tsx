@@ -13,6 +13,29 @@ function currentTheme(): 'dark' | 'neutral' {
   return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'neutral'
 }
 
+/* 模块级 SVG 缓存：同一 (主题, 图表) 只渲染一次。
+   主题来回切换时直接命中缓存，避免 N 张图同步重渲染卡死主线程。 */
+const svgCache = new Map<string, string>()
+const SVG_CACHE_MAX = 100
+
+function svgCacheSet(key: string, svg: string) {
+  if (svgCache.size >= SVG_CACHE_MAX) {
+    const oldest = svgCache.keys().next().value
+    if (oldest) svgCache.delete(oldest)
+  }
+  svgCache.set(key, svg)
+}
+
+/** 空闲时调度（避免切主题瞬间几十张图排队阻塞） */
+function scheduleIdle(cb: () => void): () => void {
+  if (typeof window.requestIdleCallback === 'function') {
+    const id = window.requestIdleCallback(cb)
+    return () => window.cancelIdleCallback(id)
+  }
+  const id = setTimeout(cb, 0)
+  return () => clearTimeout(id)
+}
+
 export default function Mermaid({ chart }: { chart: string }) {
   const ref = useRef<HTMLDivElement>(null)
   const rawId = useId().replace(/[^a-zA-Z0-9]/g, '')
@@ -27,18 +50,29 @@ export default function Mermaid({ chart }: { chart: string }) {
   }, [])
 
   useEffect(() => {
+    const theme = currentTheme()
+    const key = `${theme}:${chart}`
+    const cached = svgCache.get(key)
+    if (cached !== undefined) {
+      if (ref.current) ref.current.innerHTML = cached
+      return
+    }
     let cancelled = false
-    mermaid.initialize({ startOnLoad: false, theme: currentTheme() })
-    mermaid
-      .render(`mmd${rawId}${themeTick}`, chart)
-      .then(({ svg }) => {
-        if (!cancelled && ref.current) ref.current.innerHTML = svg
-      })
-      .catch((e) => {
-        if (!cancelled) setError(String(e))
-      })
+    const cancelSchedule = scheduleIdle(() => {
+      mermaid.initialize({ startOnLoad: false, theme })
+      mermaid
+        .render(`mmd${rawId}${themeTick}`, chart)
+        .then(({ svg }) => {
+          svgCacheSet(key, svg)
+          if (!cancelled && ref.current) ref.current.innerHTML = svg
+        })
+        .catch((e) => {
+          if (!cancelled) setError(String(e))
+        })
+    })
     return () => {
       cancelled = true
+      cancelSchedule()
     }
   }, [chart, rawId, themeTick])
 
@@ -65,9 +99,16 @@ export async function hydrateMermaidBlocks(root: HTMLElement) {
   for (let i = 0; i < blocks.length; i++) {
     const el = blocks[i]
     const chart = el.textContent ?? ''
+    const theme = currentTheme()
+    const key = `${theme}:${chart}`
     try {
-      mermaid.initialize({ startOnLoad: false, theme: currentTheme() })
-      const { svg } = await mermaid.render(`preview-mmd-${i}-${Date.now()}`, chart)
+      let svg = svgCache.get(key)
+      if (svg === undefined) {
+        mermaid.initialize({ startOnLoad: false, theme })
+        const result = await mermaid.render(`preview-mmd-${i}-${Date.now()}`, chart)
+        svg = result.svg
+        svgCacheSet(key, svg)
+      }
       const canvas = document.createElement('div')
       canvas.className = 'mermaid-canvas'
       const inner = document.createElement('div')

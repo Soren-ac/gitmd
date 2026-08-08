@@ -24,6 +24,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import CommandPalette from '@/components/layout/CommandPalette'
+import { applyTheme } from '@/lib/client/theme'
 import { useToast } from '@/components/common/Toast'
 import { copyText } from '@/lib/clipboard'
 
@@ -131,10 +132,7 @@ export default function TopNav({ user, onMenuClick, onToggleSidebar }: Props) {
   }, [])
 
   function toggleTheme() {
-    const next = theme === 'dark' ? 'light' : 'dark'
-    document.documentElement.dataset.theme = next
-    localStorage.setItem('gitmd-theme', next)
-    window.dispatchEvent(new Event('gitmd-theme'))
+    applyTheme(theme === 'dark' ? 'light' : 'dark')
   }
 
   async function copyLink() {

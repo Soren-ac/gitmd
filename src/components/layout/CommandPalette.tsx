@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Clock, CornerDownLeft, FilePlus2, FileText, Loader2, Moon, Search, Settings } from 'lucide-react'
 import { getRecent, type RecentItem } from '@/components/layout/DocTracker'
+import { applyTheme } from '@/lib/client/theme'
 import { useDialog } from '@/components/common/Dialog'
 
 interface Props {
@@ -67,10 +68,7 @@ export default function CommandPalette({ open, onClose }: Props) {
   }, [q, open])
 
   const toggleTheme = useCallback(() => {
-    const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'
-    document.documentElement.dataset.theme = next
-    localStorage.setItem('gitmd-theme', next)
-    window.dispatchEvent(new Event('gitmd-theme'))
+    applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark')
     onClose()
   }, [onClose])
 

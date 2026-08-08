@@ -123,6 +123,14 @@ body::before {
 
 ::selection { background: var(--accent-ring); }
 
+/* 主题切换瞬间禁用全部 transition，避免颜色动画风暴 */
+.theme-instant,
+.theme-instant *,
+.theme-instant *::before,
+.theme-instant *::after {
+  transition: none !important;
+}
+
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
