@@ -53,6 +53,11 @@ function TreeItem({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: Ct
   }
 
   async function op(action: 'rename' | 'delete') {
+    const editHrefOf = (p: string) =>
+      '/edit/' + p.replace(/\.mdx?$/i, '').split('/').map(encodeURIComponent).join('/')
+    /** 正在查看/编辑该文档（删除/移动后当前页会变 404，需要跟随跳转） */
+    const onThisDoc = (p: string) => pathname === docHref(p) || pathname === editHrefOf(p)
+
     if (action === 'rename') {
       const to = await dialog.prompt({
         title: '重命名 / 移动',
@@ -68,9 +73,10 @@ function TreeItem({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: Ct
       if (res.ok) {
         const data = await res.json().catch(() => ({}))
         toast.push('success', `已移动到 ${to}`)
-        // 正在查看被移动的文档时，跟随跳转到新路径，避免停在 404
-        if (pathname === docHref(node.path) && typeof data.path === 'string') {
-          router.push(docHref(data.path))
+        // 跟随跳转到新路径后直接返回：旧路由已失效，refresh 会重渲染出 404
+        if (typeof data.path === 'string' && onThisDoc(node.path)) {
+          router.push(pathname.startsWith('/edit/') ? editHrefOf(data.path) : docHref(data.path))
+          return
         }
       } else {
         const d = await res.json().catch(() => ({}))
@@ -93,7 +99,11 @@ function TreeItem({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: Ct
       })
       if (res.ok) {
         toast.push('success', `已删除 ${node.path}`)
-        if (pathname === docHref(node.path)) router.push('/docs')
+        // 正查看/编辑被删文档时跳回目录；同上，跳转后不再 refresh 旧路由
+        if (onThisDoc(node.path)) {
+          router.push('/docs')
+          return
+        }
       } else {
         const d = await res.json().catch(() => ({}))
         if (d.identityRequired) {

@@ -577,6 +577,7 @@ export default function Editor({ path, docDir, initialFrontmatter, initialBody, 
         setSaved({ body: bodyRef.current, fm: fmRef.current })
       }
       setCommitMsg('')
+      setSavedOnce(true) // 新建文档首次保存后即存在于 /docs 下，返回可直达文档页
       const imgs = data.images
       setStatus(
         '已提交并推送 ✓' +
@@ -697,13 +698,18 @@ export default function Editor({ path, docDir, initialFrontmatter, initialBody, 
   }
 
   const docHref = '/docs/' + path.replace(/\.mdx?$/i, '').split('/').map(encodeURIComponent).join('/')
+  // 新建且尚未保存的文档在 /docs 下还不存在，返回应落到所在目录而非 404；
+  // 首次保存成功后（savedOnce）文档已存在，恢复直达文档页
+  const [savedOnce, setSavedOnce] = useState(false)
+  const backDir = docDir.split('/').filter(Boolean).map(encodeURIComponent).join('/')
+  const backHref = isNew && !savedOnce ? (backDir ? '/docs/' + backDir : '/docs') : docHref
   const showEditorPane = view !== 'preview'
   const showPreviewPane = mode === 'source' && view !== 'edit'
 
   return (
     <div className="editor-shell">
       <div className="editor-toolbar">
-        <Link className="btn btn-ghost btn-sm" href={docHref} aria-label="返回文档">
+        <Link className="btn btn-ghost btn-sm" href={backHref} aria-label="返回文档">
           <ArrowLeft size={14} />
           返回
         </Link>
