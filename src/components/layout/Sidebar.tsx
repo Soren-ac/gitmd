@@ -234,12 +234,14 @@ export default function Sidebar({ tree, repoReady, canEdit, open, onClose }: Pro
       body: JSON.stringify({ from, to }),
     })
     if (res.ok) {
-      toast.push('success', `已移动到 ${to}`)
-      // 正查看/编辑被移动文档时跟随跳转；跳转后不再 refresh 失效旧路由
+      // 正查看/编辑被移动文档时需要跟随跳转。客户端 Router Cache 的布局/页面载荷
+      // 是旧的，router.push 不会刷新侧边栏树（实测跳转后树仍显示旧位置）——
+      // 整页跳转保证树与内容都是最新
       if (pathname === docHref(from) || pathname === editHrefOf(from)) {
-        router.push(pathname.startsWith('/edit/') ? editHrefOf(to) : docHref(to))
+        window.location.assign(pathname.startsWith('/edit/') ? editHrefOf(to) : docHref(to))
         return
       }
+      toast.push('success', `已移动到 ${to}`)
       router.refresh()
       return
     }
@@ -285,12 +287,12 @@ export default function Sidebar({ tree, repoReady, canEdit, open, onClose }: Pro
       method: 'DELETE',
     })
     if (res.ok) {
-      toast.push('success', `已删除 ${node.path}`)
-      // 正查看/编辑被删文档时跳回目录；跳转后不再 refresh 失效旧路由
+      // 正查看/编辑被删文档时跳回目录：同 moveDoc，整页跳转避开陈旧的 Router Cache
       if (pathname === docHref(node.path) || pathname === editHrefOf(node.path)) {
-        router.push('/docs')
+        window.location.assign('/docs')
         return
       }
+      toast.push('success', `已删除 ${node.path}`)
     } else {
       const d = await res.json().catch(() => ({}))
       if (d.identityRequired) {
