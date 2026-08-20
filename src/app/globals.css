@@ -1530,6 +1530,96 @@ html.sidebar-dragging .sidebar { transition: none !important; }
 .cm-activeLineGutter { background: var(--hover) !important; color: var(--text) !important; }
 .cm-cursor { border-left-color: var(--text) !important; }
 .cm-selectionBackground, .cm-editor ::selection { background: var(--accent-ring) !important; }
+
+/* ---------- CodeMirror 搜索/替换面板：贴合设计令牌（CM 恒按 light 主题注入默认色，用 !important 覆盖） ---------- */
+.cm-editor .cm-panels {
+  background: var(--surface-solid) !important;
+  color: var(--text) !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+.cm-editor .cm-panel.cm-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 8px 36px 8px 12px;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+}
+.cm-editor .cm-panel.cm-search input,
+.cm-editor .cm-panel.cm-search button,
+.cm-editor .cm-panel.cm-search label {
+  margin: 0; /* 覆盖 CM baseTheme 的 .2em/.6em 间距，统一走 flex gap */
+}
+.cm-editor .cm-panel.cm-search .cm-textfield {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  outline: none;
+  min-width: 180px;
+}
+.cm-editor .cm-panel.cm-search .cm-textfield:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+.cm-editor .cm-panel.cm-search .cm-button {
+  background: var(--bg);
+  background-image: none;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  cursor: pointer;
+  text-transform: none;
+}
+.cm-editor .cm-panel.cm-search .cm-button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.cm-editor .cm-panel.cm-search label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-tertiary);
+  font-size: 12px !important; /* baseTheme 压到 80%，恢复可读字号 */
+  white-space: nowrap;
+}
+.cm-editor .cm-panel.cm-search input[type='checkbox'] {
+  accent-color: var(--accent);
+  margin: 0;
+}
+.cm-editor .cm-panel.cm-search [name='close'] {
+  top: 8px !important;
+  right: 10px !important;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary) !important;
+  cursor: pointer;
+}
+.cm-editor .cm-panel.cm-search [name='close']:hover {
+  background: var(--hover) !important;
+  color: var(--text) !important;
+}
+/* 匹配项高亮：琥珀色系，明暗双主题均可读 */
+.cm-editor .cm-searchMatch {
+  background: rgba(245, 158, 11, 0.28) !important;
+  outline: 1px solid rgba(245, 158, 11, 0.45);
+  border-radius: 2px;
+}
+.cm-editor .cm-searchMatch.cm-searchMatch-selected {
+  background: rgba(245, 158, 11, 0.5) !important;
+  outline-color: var(--warning);
+}
 .milkdown { height: 100%; overflow-y: auto; padding: 24px 32px; background: var(--bg-content); }
 
 /* Milkdown Crepe 主题变量映射到 GitMD 令牌，跟随明暗主题切换

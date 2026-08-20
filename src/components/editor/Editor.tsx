@@ -41,6 +41,13 @@ interface Props {
 type Mode = 'source' | 'wysiwyg'
 type View = 'edit' | 'split' | 'preview'
 
+/* CodeMirror 扩展模块级共享（不可变描述符，可安全复用）：
+ * @uiw/react-codemirror 在 extensions/onUpdate 引用变化时会对编辑器做全量
+ * StateEffect.reconfigure，重建所有 StateField——搜索面板、撤销历史一并重置。
+ * 之前每次渲染都新建数组，回车跳到匹配项 → 选区变化 → setSelPos → 重渲染 →
+ * 搜索面板被销毁，表现为「回车后搜索栏消失」。 */
+const CM_EXTENSIONS = [markdown({ base: markdownLanguage, codeLanguages: languages }), EditorView.lineWrapping]
+
 export default function Editor({ path, docDir, initialFrontmatter, initialBody, initialHash, isNew }: Props) {
   const router = useRouter()
   const dialog = useDialog()
@@ -84,8 +91,9 @@ export default function Editor({ path, docDir, initialFrontmatter, initialBody, 
       .catch(() => {})
   }, [])
 
-  /** CodeMirror 选区跟踪：非空选区时给浮动工具条定位 */
-  function onEditorUpdate(vu: ViewUpdate) {
+  /** CodeMirror 选区跟踪：非空选区时给浮动工具条定位。
+   *  useCallback 稳定引用：见 CM_EXTENSIONS 注释（引用变化会触发全量重配置） */
+  const onEditorUpdate = useCallback((vu: ViewUpdate) => {
     const s = vu.state.selection.main
     if (s.empty || mode !== 'source') {
       setSelPos(null)
@@ -103,7 +111,7 @@ export default function Editor({ path, docDir, initialFrontmatter, initialBody, 
     }
     const x = Math.min(Math.max(8, coords.left - 60), window.innerWidth - 380)
     setSelPos({ from: s.from, to: s.to, text, x, y: coords.bottom + 6 })
-  }
+  }, [mode])
 
   const ASSIST_BTNS = [
     ['polish', '润色'],
@@ -179,7 +187,12 @@ export default function Editor({ path, docDir, initialFrontmatter, initialBody, 
   const [statusTone, setStatusTone] = useState<'ok' | 'err' | 'info'>('info')
   const [commitMsg, setCommitMsg] = useState('')
   const previewRef = useRef<HTMLDivElement>(null)
+  const previewPaneRef = useRef<HTMLDivElement>(null)
+  const editorPaneRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
+  // @uiw/react-codemirror 要等容器 ref 落地后的第二轮 effect 才创建 EditorView，
+  // 用 state 感知创建时机（ref 变化不触发渲染，同步滚动 effect 依赖它重跑）
+  const [cmInstance, setCmInstance] = useState<EditorView | null>(null)
 
   const bodyRef = useRef(body)
   const fmRef = useRef(frontmatter)
@@ -323,6 +336,135 @@ export default function Editor({ path, docDir, initialFrontmatter, initialBody, 
       hydrateMermaidBlocks(previewRef.current).catch(() => {})
     }
   }, [previewHtml])
+
+  // ------- 分屏同步滚动 -------
+  // 预览 HTML 的块元素带 data-source-start/end（rehypeSourcePos），与 CodeMirror
+  // 文档偏移是同一坐标系 → 双向块级对齐，相邻锚点间按比例内插。
+  // 程序化滚动会回触发 scroll 事件，用时间戳 guard 忽略另一侧 150ms 内的事件防止乒乓。
+  useEffect(() => {
+    if (mode !== 'source' || view !== 'split') return
+    const cm = editorPaneRef.current?.querySelector<HTMLElement>('.cm-scroller')
+    const pane = previewPaneRef.current
+    const bodyEl = previewRef.current
+    if (!cm || !pane || !bodyEl || !viewRef.current) return
+
+    const TOP = 12 // 对齐视口顶部时的留白
+    const guard = { cm: 0, pane: 0 }
+
+    function syncPreviewToSource() {
+      const cmView = viewRef.current
+      if (!cmView || !cm || !pane || !bodyEl) return
+      const offset = cmView.lineBlockAtHeight(cm.scrollTop + TOP).from
+      const els = Array.from(bodyEl.querySelectorAll<HTMLElement>('[data-source-start]'))
+      if (!els.length) return
+      // 二分：文档序中最后一个 start <= offset 的锚点（start 单调递增）
+      let lo = 0
+      let hi = els.length - 1
+      let idx = 0
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1
+        if (Number(els[mid].dataset.sourceStart) <= offset) {
+          idx = mid
+          lo = mid + 1
+        } else {
+          hi = mid - 1
+        }
+      }
+      const el = els[idx]
+      const start = Number(el.dataset.sourceStart)
+      const end = Number(el.dataset.sourceEnd ?? start)
+      const paneRect = pane.getBoundingClientRect()
+      const elRect = el.getBoundingClientRect()
+      const elTop = elRect.top - paneRect.top + pane.scrollTop
+      let target = elTop
+      if (end > start && elRect.height > 0) {
+        // 锚点自身跨度的内插：高块（代码块/表格）内部也能按行对齐，且覆盖最后一个锚点
+        const f = Math.min(1, Math.max(0, (offset - start) / (end - start)))
+        target = elTop + f * elRect.height
+      } else {
+        const next = els[idx + 1]
+        if (next) {
+          const nextStart = Number(next.dataset.sourceStart)
+          if (nextStart > start) {
+            const nextTop = next.getBoundingClientRect().top - paneRect.top + pane.scrollTop
+            const f = Math.min(1, Math.max(0, (offset - start) / (nextStart - start)))
+            target = elTop + f * (nextTop - elTop)
+          }
+        }
+      }
+      guard.pane = performance.now() + 150
+      pane.scrollTop = target - TOP
+    }
+
+    function syncSourceToPreview() {
+      const cmView = viewRef.current
+      if (!cmView || !cm || !pane || !bodyEl) return
+      const paneRect = pane.getBoundingClientRect()
+      const targetY = paneRect.top + TOP
+      // 只取 .md-body 的直接子块：垂直方向单调不重叠（margin 折叠也不重叠），
+      // 可二分；块无锚点时（如 figure.code-block）取内部第一个锚点的源码区间
+      const blocks: { start: number; end: number; el: Element }[] = []
+      for (const child of Array.from(bodyEl.children)) {
+        const host =
+          (child as HTMLElement).dataset?.sourceStart != null
+            ? (child as HTMLElement)
+            : child.querySelector<HTMLElement>('[data-source-start]')
+        if (!host) continue
+        blocks.push({
+          start: Number(host.dataset.sourceStart),
+          end: Number(host.dataset.sourceEnd ?? host.dataset.sourceStart),
+          el: child,
+        })
+      }
+      if (!blocks.length) return
+      // 第一个 bottom 越过视口顶的块 = 视口顶所在（或下方最近）的块；
+      // 落在块间 margin 空隙也没关系——不再依赖 elementFromPoint 命中
+      let lo = 0
+      let hi = blocks.length - 1
+      let idx = blocks.length - 1
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1
+        if (blocks[mid].el.getBoundingClientRect().bottom > targetY) {
+          idx = mid
+          hi = mid - 1
+        } else {
+          lo = mid + 1
+        }
+      }
+      const blk = blocks[idx]
+      const rect = blk.el.getBoundingClientRect()
+      // 块被视口顶遮住的比例（视口顶在块上方空隙时为 0）→ 源码偏移内插
+      const f =
+        rect.height > 0 && rect.top <= targetY
+          ? Math.min(1, Math.max(0, (targetY - rect.top) / rect.height))
+          : 0
+      const offset = Math.round(blk.start + f * Math.max(0, blk.end - blk.start))
+      const block = cmView.lineBlockAt(Math.min(Math.max(0, offset), cmView.state.doc.length))
+      guard.cm = performance.now() + 150
+      cm.scrollTop = Math.max(0, block.top - TOP)
+    }
+
+    let raf = 0
+    const onCmScroll = () => {
+      if (performance.now() < guard.cm) return
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(syncPreviewToSource)
+    }
+    const onPaneScroll = () => {
+      if (performance.now() < guard.pane) return
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(syncSourceToPreview)
+    }
+    cm.addEventListener('scroll', onCmScroll, { passive: true })
+    pane.addEventListener('scroll', onPaneScroll, { passive: true })
+    // 切到分屏时立即对齐一次（两侧内容高度可能差很多）
+    raf = requestAnimationFrame(syncPreviewToSource)
+    return () => {
+      cm.removeEventListener('scroll', onCmScroll)
+      pane.removeEventListener('scroll', onPaneScroll)
+      cancelAnimationFrame(raf)
+    }
+  }, [mode, view, cmInstance])
 
   // ------- 保存（NDJSON 流式：committed/pushed 分阶段提示） -------
   interface SaveEvent {
@@ -708,6 +850,7 @@ export default function Editor({ path, docDir, initialFrontmatter, initialBody, 
           <>
             {showEditorPane && (
               <div
+                ref={editorPaneRef}
                 className="editor-pane"
                 onDrop={(e) => {
                   if (e.dataTransfer?.files?.length) {
@@ -721,9 +864,10 @@ export default function Editor({ path, docDir, initialFrontmatter, initialBody, 
                   value={body}
                   onChange={setBody}
                   onUpdate={onEditorUpdate}
-                  extensions={[markdown({ base: markdownLanguage, codeLanguages: languages }), EditorView.lineWrapping]}
+                  extensions={CM_EXTENSIONS}
                   onCreateEditor={(view) => {
                     viewRef.current = view
+                    setCmInstance(view)
                   }}
                   onPaste={(e) => {
                     if (e.clipboardData?.files?.length) {
@@ -737,7 +881,7 @@ export default function Editor({ path, docDir, initialFrontmatter, initialBody, 
               </div>
             )}
             {showPreviewPane && (
-              <div className="editor-pane preview" onClick={onPreviewClick}>
+              <div ref={previewPaneRef} className="editor-pane preview" onClick={onPreviewClick}>
                 <div ref={previewRef} className="md-body" dangerouslySetInnerHTML={{ __html: previewHtml }} />
               </div>
             )}
