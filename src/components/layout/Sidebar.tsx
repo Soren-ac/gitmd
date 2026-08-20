@@ -1,13 +1,16 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
+  ChevronLeft,
   ChevronRight,
   FilePlus2,
   FileText,
   Folder,
+  FolderInput,
+  FolderOpen,
   FolderPlus,
   ListTree,
   Pencil,
@@ -21,7 +24,7 @@ import { useDialog } from '@/components/common/Dialog'
 interface Props {
   tree: TreeNode[]
   repoReady: boolean
-  /** 是否展示写操作入口（新建/重命名/删除），匿名用户为 false */
+  /** 是否展示写操作入口（新建/重命名/删除/拖拽移动），匿名用户为 false */
   canEdit: boolean
   open: boolean
   onClose: () => void
@@ -31,18 +34,45 @@ function docHref(path: string) {
   return '/docs/' + path.replace(/\.mdx?$/i, '').split('/').map(encodeURIComponent).join('/')
 }
 
+function editHrefOf(p: string) {
+  return '/edit/' + p.replace(/\.mdx?$/i, '').split('/').map(encodeURIComponent).join('/')
+}
+
+function dirOf(p: string) {
+  const i = p.lastIndexOf('/')
+  return i < 0 ? '' : p.slice(0, i)
+}
+
+/** 展平目录树 → 缩进列表（「移动到目录」选择器用） */
+function collectDirs(nodes: TreeNode[], depth = 0, out: { path: string; name: string; depth: number }[] = []) {
+  for (const n of nodes) {
+    if (n.type === 'dir') {
+      out.push({ path: n.path, name: n.name, depth })
+      collectDirs(n.children ?? [], depth + 1, out)
+    }
+  }
+  return out
+}
+
+const DRAG_TYPE = 'application/x-gitmd-doc'
+
 interface Ctx {
   collapseTick: number
   canEdit: boolean
+  dropTarget: string | null
   onNavigate: () => void
   onNewDoc: (dir: string) => void
+  onRename: (node: TreeNode) => void
+  onDelete: (node: TreeNode) => void
+  onDragStartDoc: (e: React.DragEvent, node: TreeNode) => void
+  onDragOverDir: (e: React.DragEvent, node: TreeNode) => void
+  onDragOverFile: (e: React.DragEvent) => void
+  onDropToDir: (e: React.DragEvent, node: TreeNode) => void
+  onContextMenuDoc: (e: React.MouseEvent, node: TreeNode) => void
 }
 
 function TreeItem({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: Ctx }) {
   const pathname = usePathname()
-  const router = useRouter()
-  const toast = useToast()
-  const dialog = useDialog()
   const [open, setOpen] = useState(depth < 2)
 
   // 折叠全部：渲染期比较 tick，避免 effect 级联
@@ -52,80 +82,18 @@ function TreeItem({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: Ct
     setOpen(false)
   }
 
-  async function op(action: 'rename' | 'delete') {
-    const editHrefOf = (p: string) =>
-      '/edit/' + p.replace(/\.mdx?$/i, '').split('/').map(encodeURIComponent).join('/')
-    /** 正在查看/编辑该文档（删除/移动后当前页会变 404，需要跟随跳转） */
-    const onThisDoc = (p: string) => pathname === docHref(p) || pathname === editHrefOf(p)
-
-    if (action === 'rename') {
-      const to = await dialog.prompt({
-        title: '重命名 / 移动',
-        message: `当前路径：${node.path}`,
-        input: { placeholder: '新路径（相对仓库根，含 .md）', defaultValue: node.path },
-      })
-      if (!to || to === node.path) return
-      const res = await fetch('/api/docs/move', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: node.path, to }),
-      })
-      if (res.ok) {
-        const data = await res.json().catch(() => ({}))
-        toast.push('success', `已移动到 ${to}`)
-        // 跟随跳转到新路径后直接返回：旧路由已失效，refresh 会重渲染出 404
-        if (typeof data.path === 'string' && onThisDoc(node.path)) {
-          router.push(pathname.startsWith('/edit/') ? editHrefOf(data.path) : docHref(data.path))
-          return
-        }
-      } else {
-        const d = await res.json().catch(() => ({}))
-        if (d.identityRequired) {
-          router.push('/settings')
-          return
-        }
-        toast.push('error', d.error ?? '移动失败')
-      }
-    } else {
-      const ok = await dialog.confirm({
-        title: '删除文档',
-        message: `确定删除 ${node.path}？该操作会立即提交到远端仓库，删除后只能通过 git 历史找回。`,
-        confirmText: '删除',
-        danger: true,
-      })
-      if (!ok) return
-      const res = await fetch(`/api/docs/${node.path.split('/').map(encodeURIComponent).join('/')}`, {
-        method: 'DELETE',
-      })
-      if (res.ok) {
-        toast.push('success', `已删除 ${node.path}`)
-        // 正查看/编辑被删文档时跳回目录；同上，跳转后不再 refresh 旧路由
-        if (onThisDoc(node.path)) {
-          router.push('/docs')
-          return
-        }
-      } else {
-        const d = await res.json().catch(() => ({}))
-        if (d.identityRequired) {
-          router.push('/settings')
-          return
-        }
-        toast.push('error', d.error ?? '删除失败')
-      }
-    }
-    router.refresh()
-  }
-
   if (node.type === 'dir') {
     return (
       <div>
         <div
-          className="tree-item"
+          className={`tree-item ${ctx.dropTarget === node.path ? 'drop-target' : ''}`}
           onClick={() => setOpen(!open)}
           role="button"
           tabIndex={0}
           aria-expanded={open}
           onKeyDown={(e) => e.key === 'Enter' && setOpen(!open)}
+          onDragOver={(e) => ctx.onDragOverDir(e, node)}
+          onDrop={(e) => ctx.onDropToDir(e, node)}
         >
           <span className={`tree-chevron ${open ? 'open' : ''}`}>
             <ChevronRight size={13} />
@@ -164,24 +132,43 @@ function TreeItem({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: Ct
   const href = docHref(node.path)
   const label = node.name.replace(/\.mdx?$/i, '')
   return (
-    <div className={`tree-item file ${pathname === href ? 'active' : ''}`}>
+    <div
+      className={`tree-item file ${pathname === href ? 'active' : ''}`}
+      draggable={ctx.canEdit}
+      onDragStart={(e) => ctx.onDragStartDoc(e, node)}
+      onDragOver={ctx.onDragOverFile}
+      onContextMenu={(e) => {
+        if (!ctx.canEdit) return
+        e.preventDefault()
+        ctx.onContextMenuDoc(e, node)
+      }}
+      title={ctx.canEdit ? `${node.path}（可拖拽到目录，或右键更多操作）` : node.path}
+    >
       <span className="tree-spacer" />
-      <Link href={href} title={node.path} className="tree-label" onClick={ctx.onNavigate}>
+      {/* Link 默认 draggable 会抢走上层 div 的自定义拖拽，禁掉 */}
+      <Link href={href} className="tree-label" draggable={false} onClick={ctx.onNavigate}>
         <FileText size={14} className="tree-icon" />
         {label}
       </Link>
       {ctx.canEdit && (
         <span className="ops">
-          <button className="btn-icon btn" aria-label={`重命名或移动 ${node.name}`} onClick={() => op('rename')}>
+          <button className="btn-icon btn" aria-label={`重命名 ${node.name}`} title={`重命名 ${node.name}`} onClick={() => ctx.onRename(node)}>
             <Pencil size={13} />
           </button>
-          <button className="btn-icon btn btn-danger" aria-label={`删除 ${node.name}`} onClick={() => op('delete')}>
+          <button className="btn-icon btn btn-danger" aria-label={`删除 ${node.name}`} onClick={() => ctx.onDelete(node)}>
             <Trash2 size={13} />
           </button>
         </span>
       )}
     </div>
   )
+}
+
+interface CtxMenuState {
+  x: number
+  y: number
+  node: TreeNode
+  mode: 'main' | 'dirs'
 }
 
 export default function Sidebar({ tree, repoReady, canEdit, open, onClose }: Props) {
@@ -191,6 +178,10 @@ export default function Sidebar({ tree, repoReady, canEdit, open, onClose }: Pro
   const dialog = useDialog()
   const [filter, setFilter] = useState('')
   const [collapseTick, setCollapseTick] = useState(0)
+  const [dropTarget, setDropTarget] = useState<string | null>(null)
+  const [menu, setMenu] = useState<CtxMenuState | null>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const asideRef = useRef<HTMLElement>(null)
 
   const filtered = useMemo(() => {
     const f = filter.trim().toLowerCase()
@@ -205,6 +196,111 @@ export default function Sidebar({ tree, repoReady, canEdit, open, onClose }: Pro
     walk(tree)
     return out
   }, [filter, tree])
+
+  const dirs = useMemo(() => collectDirs(tree), [tree])
+
+  // 右键菜单：点外部 / Escape 关闭
+  useEffect(() => {
+    if (!menu) return
+    const onDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenu(null)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenu(null)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [menu])
+
+  // 拖拽结束（无论落点）清理高亮；拖出侧边栏也清理
+  useEffect(() => {
+    const onDragEnd = () => setDropTarget(null)
+    document.addEventListener('dragend', onDragEnd)
+    return () => document.removeEventListener('dragend', onDragEnd)
+  }, [])
+
+  /** 统一移动入口：改名（toDir 不变 + newName）与换目录（newName 为空）都走这里 */
+  async function moveDoc(from: string, toDir: string, newName?: string) {
+    const name = newName ?? from.slice(from.lastIndexOf('/') + 1)
+    const to = toDir ? `${toDir}/${name}` : name
+    if (to === from) return
+    const res = await fetch('/api/docs/move', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from, to }),
+    })
+    if (res.ok) {
+      toast.push('success', `已移动到 ${to}`)
+      // 正查看/编辑被移动文档时跟随跳转；跳转后不再 refresh 失效旧路由
+      if (pathname === docHref(from) || pathname === editHrefOf(from)) {
+        router.push(pathname.startsWith('/edit/') ? editHrefOf(to) : docHref(to))
+        return
+      }
+      router.refresh()
+      return
+    }
+    const d = await res.json().catch(() => ({}))
+    if (d.identityRequired) {
+      router.push('/settings')
+      return
+    }
+    toast.push('error', d.error ?? '移动失败')
+  }
+
+  /** 重命名：输入框只给文档名（不含目录前缀与扩展名），目录保持不变 */
+  async function renameDoc(node: TreeNode) {
+    const dir = dirOf(node.path)
+    const ext = node.path.match(/\.mdx?$/i)?.[0] ?? '.md'
+    const cur = node.name.replace(/\.mdx?$/i, '')
+    const name = await dialog.prompt({
+      title: '重命名文档',
+      message: `仅修改文档名，目录保持不变（${dir || '根目录'}）。换目录可在树中拖拽，或右键「移动到目录」。`,
+      input: { placeholder: '文档名', defaultValue: cur },
+    })
+    if (!name || name === cur) return
+    if (/[\\/]/.test(name)) {
+      toast.push('error', '文档名不能包含 / 或 \\')
+      return
+    }
+    if (name === '.' || name === '..') {
+      toast.push('error', '文档名不合法')
+      return
+    }
+    await moveDoc(node.path, dir, name + ext)
+  }
+
+  async function deleteDoc(node: TreeNode) {
+    const ok = await dialog.confirm({
+      title: '删除文档',
+      message: `确定删除 ${node.path}？该操作会立即提交到远端仓库，删除后只能通过 git 历史找回。`,
+      confirmText: '删除',
+      danger: true,
+    })
+    if (!ok) return
+    const res = await fetch(`/api/docs/${node.path.split('/').map(encodeURIComponent).join('/')}`, {
+      method: 'DELETE',
+    })
+    if (res.ok) {
+      toast.push('success', `已删除 ${node.path}`)
+      // 正查看/编辑被删文档时跳回目录；跳转后不再 refresh 失效旧路由
+      if (pathname === docHref(node.path) || pathname === editHrefOf(node.path)) {
+        router.push('/docs')
+        return
+      }
+    } else {
+      const d = await res.json().catch(() => ({}))
+      if (d.identityRequired) {
+        router.push('/settings')
+        return
+      }
+      toast.push('error', d.error ?? '删除失败')
+    }
+    router.refresh()
+  }
 
   async function newDoc(dirPrefix = '') {
     const p = await dialog.prompt(
@@ -266,12 +362,66 @@ export default function Sidebar({ tree, repoReady, canEdit, open, onClose }: Pro
     }
   }
 
-  const ctx: Ctx = { collapseTick, canEdit, onNavigate: onClose, onNewDoc: (dir) => void newDoc(dir) }
+  // ------- 拖拽移动 -------
+  function hasDocPayload(e: React.DragEvent) {
+    return e.dataTransfer.types.includes(DRAG_TYPE)
+  }
+
+  function dropTo(e: React.DragEvent, toDir: string) {
+    if (!hasDocPayload(e)) return
+    e.preventDefault()
+    setDropTarget(null)
+    const from = e.dataTransfer.getData(DRAG_TYPE)
+    // 拖回原目录 = 无操作
+    if (from && dirOf(from) !== toDir) void moveDoc(from, toDir)
+  }
+
+  const ctx: Ctx = {
+    collapseTick,
+    canEdit,
+    dropTarget,
+    onNavigate: onClose,
+    onNewDoc: (dir) => void newDoc(dir),
+    onRename: (node) => void renameDoc(node),
+    onDelete: (node) => void deleteDoc(node),
+    onDragStartDoc: (e, node) => {
+      e.dataTransfer.setData(DRAG_TYPE, node.path)
+      e.dataTransfer.setData('text/plain', node.path)
+      e.dataTransfer.effectAllowed = 'move'
+    },
+    onDragOverDir: (e, node) => {
+      if (!canEdit || !hasDocPayload(e)) return
+      e.preventDefault()
+      e.stopPropagation()
+      e.dataTransfer.dropEffect = 'move'
+      setDropTarget(node.path)
+    },
+    // 文件行不是放置目标：不 preventDefault，仅阻断冒泡并清掉高亮
+    onDragOverFile: (e) => {
+      e.stopPropagation()
+      setDropTarget(null)
+    },
+    onDropToDir: (e, node) => {
+      e.stopPropagation()
+      dropTo(e, node.path)
+    },
+    onContextMenuDoc: (e, node) => {
+      const x = Math.min(e.clientX, window.innerWidth - 200)
+      const y = Math.min(e.clientY, window.innerHeight - 220)
+      setMenu({ x, y, node, mode: 'main' })
+    },
+  }
 
   return (
     <>
       <div className={`sidebar-backdrop ${open ? 'show' : ''}`} onClick={onClose} />
-      <aside className={`sidebar ${open ? 'open' : ''}`}>
+      <aside
+        ref={asideRef}
+        className={`sidebar ${open ? 'open' : ''}`}
+        onDragLeave={(e) => {
+          if (!asideRef.current?.contains(e.relatedTarget as Node)) setDropTarget(null)
+        }}
+      >
         <div className="sidebar-header">
           <form
             className="search-box"
@@ -315,7 +465,17 @@ export default function Sidebar({ tree, repoReady, canEdit, open, onClose }: Pro
           </div>
         </div>
 
-        <nav className="sidebar-tree" aria-label="文档目录">
+        <nav
+          className={`sidebar-tree ${dropTarget === '' ? 'drop-target-root' : ''}`}
+          aria-label="文档目录"
+          onDragOver={(e) => {
+            if (!canEdit || !hasDocPayload(e)) return
+            e.preventDefault()
+            e.dataTransfer.dropEffect = 'move'
+            setDropTarget('')
+          }}
+          onDrop={(e) => dropTo(e, '')}
+        >
           {!repoReady && (
             <div className="empty-state">
               <div className="spinner" />
@@ -343,6 +503,83 @@ export default function Sidebar({ tree, repoReady, canEdit, open, onClose }: Pro
             : tree.map((n) => <TreeItem key={n.path} node={n} depth={0} ctx={ctx} />)}
         </nav>
       </aside>
+
+      {/* 文档树右键菜单：重命名 / 移动到目录 / 删除 */}
+      {menu && (
+        <div ref={menuRef} className="ctx-menu" style={{ left: menu.x, top: menu.y }}>
+          {menu.mode === 'main' ? (
+            <>
+              <button
+                className="user-menu-item"
+                onClick={() => {
+                  const n = menu.node
+                  setMenu(null)
+                  void renameDoc(n)
+                }}
+              >
+                <Pencil size={13} />
+                重命名
+              </button>
+              <button className="user-menu-item" onClick={() => setMenu({ ...menu, mode: 'dirs' })}>
+                <FolderInput size={13} />
+                移动到目录
+              </button>
+              <button
+                className="user-menu-item ctx-danger"
+                onClick={() => {
+                  const n = menu.node
+                  setMenu(null)
+                  void deleteDoc(n)
+                }}
+              >
+                <Trash2 size={13} />
+                删除
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="user-menu-head">
+                <button
+                  className="btn btn-icon"
+                  style={{ width: 20, height: 20 }}
+                  aria-label="返回"
+                  onClick={() => setMenu({ ...menu, mode: 'main' })}
+                >
+                  <ChevronLeft size={13} />
+                </button>
+                移动到…
+              </div>
+              <div className="ctx-menu-list">
+                <button
+                  className="user-menu-item"
+                  onClick={() => {
+                    setMenu(null)
+                    void moveDoc(menu.node.path, '')
+                  }}
+                >
+                  <FolderOpen size={13} />
+                  根目录
+                </button>
+                {dirs.map((d) => (
+                  <button
+                    key={d.path}
+                    className="user-menu-item"
+                    style={{ paddingLeft: 10 + d.depth * 14 }}
+                    title={d.path}
+                    onClick={() => {
+                      setMenu(null)
+                      void moveDoc(menu.node.path, d.path)
+                    }}
+                  >
+                    <Folder size={13} />
+                    {d.name}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </>
   )
 }

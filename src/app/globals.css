@@ -666,6 +666,32 @@ html.sidebar-dragging .sidebar { transition: none !important; }
 .tree-item:hover .ops { display: inline-flex; }
 .tree-item .ops .btn-icon { width: 24px; height: 24px; }
 
+/* 拖拽移动文档：目录/根区放置目标高亮 */
+.tree-item.drop-target {
+  background: var(--accent-subtle);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+  border-radius: var(--radius-sm);
+}
+.sidebar-tree.drop-target-root {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+  border-radius: var(--radius);
+}
+
+/* 文档树右键菜单（复用 user-menu-item 行样式） */
+.ctx-menu {
+  position: fixed;
+  z-index: 80;
+  min-width: 170px;
+  max-width: 250px;
+  padding: 5px;
+  background: var(--surface-solid);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-pop);
+}
+.ctx-menu-list { max-height: 280px; overflow-y: auto; }
+.ctx-menu .user-menu-item.ctx-danger { color: var(--error); }
+
 .tree-collapse {
   display: grid;
   grid-template-rows: 0fr;
