@@ -162,15 +162,28 @@ export async function DELETE(_req: Request, ctx: Ctx) {
   if (!fs.existsSync(resolved.abs)) {
     return NextResponse.json({ error: '文档不存在' }, { status: 404 })
   }
-  try {
-    const { head } = await withWriteOp(
-      { message: `docs: delete ${resolved.rel}`, author: identity },
-      () => fs.unlinkSync(resolved.abs),
-    )
-    removeFromIndex(resolved.rel)
-    return NextResponse.json({ ok: true, head })
-  } catch (err) {
-    console.error('[gitmd] 删除失败:', err)
-    return NextResponse.json({ error: err instanceof Error ? err.message : '删除失败' }, { status: 500 })
-  }
+  // NDJSON 流式：committed（本地提交完成，推送在后台继续）→ done/error
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (obj: Record<string, unknown>) => controller.enqueue(encoder.encode(JSON.stringify(obj) + '\n'))
+      try {
+        const { head } = await withWriteOp(
+          { message: `docs: delete ${resolved.rel}`, author: identity },
+          () => fs.unlinkSync(resolved.abs),
+          (stage) => send({ stage }),
+        )
+        removeFromIndex(resolved.rel)
+        send({ stage: 'done', ok: true, head })
+      } catch (err) {
+        console.error('[gitmd] 删除失败:', err)
+        send({ stage: 'error', error: err instanceof Error ? err.message : '删除失败' })
+      } finally {
+        controller.close()
+      }
+    },
+  })
+  return new Response(stream, {
+    headers: { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store' },
+  })
 }

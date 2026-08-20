@@ -56,6 +56,35 @@ function collectDirs(nodes: TreeNode[], depth = 0, out: { path: string; name: st
 
 const DRAG_TYPE = 'application/x-gitmd-doc'
 
+interface WriteEvent {
+  stage?: 'committed' | 'pushed' | 'done' | 'error'
+  ok?: boolean
+  path?: string
+  error?: string
+}
+
+/** 消费写操作的 NDJSON 事件流：onCommitted 在本地提交完成时触发（推送 GitHub 仍在后台进行，
+ *  UI 据此立即反应不等网络往返）；error 事件（多为推送冲突后工作区被回滚）抛异常 */
+async function consumeWriteStream(res: Response, onCommitted: (ev: WriteEvent) => void): Promise<void> {
+  if (!res.body) return
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    const lines = buf.split('\n')
+    buf = lines.pop() ?? ''
+    for (const line of lines) {
+      if (!line.trim()) continue
+      const ev = JSON.parse(line) as WriteEvent
+      if (ev.stage === 'committed') onCommitted(ev)
+      else if (ev.stage === 'error') throw new Error(ev.error ?? '操作失败')
+    }
+  }
+}
+
 interface Ctx {
   collapseTick: number
   canEdit: boolean
@@ -233,24 +262,32 @@ export default function Sidebar({ tree, repoReady, canEdit, open, onClose }: Pro
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ from, to }),
     })
-    if (res.ok) {
-      // 正查看/编辑被移动文档时需要跟随跳转。客户端 Router Cache 的布局/页面载荷
-      // 是旧的，router.push 不会刷新侧边栏树（实测跳转后树仍显示旧位置）——
-      // 整页跳转保证树与内容都是最新
-      if (pathname === docHref(from) || pathname === editHrefOf(from)) {
-        window.location.assign(pathname.startsWith('/edit/') ? editHrefOf(to) : docHref(to))
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}))
+      if (d.identityRequired) {
+        router.push('/settings')
         return
       }
-      toast.push('success', `已移动到 ${to}`)
-      router.refresh()
+      toast.push('error', d.error ?? '移动失败')
       return
     }
-    const d = await res.json().catch(() => ({}))
-    if (d.identityRequired) {
-      router.push('/settings')
-      return
+    // 正查看/编辑被移动文档时需要跟随跳转：整页跳转避开陈旧的 Router Cache
+    const viewing = pathname === docHref(from) || pathname === editHrefOf(from)
+    try {
+      await consumeWriteStream(res, () => {
+        // 本地提交完成（推送在后台继续）：立即反应，不等 GitHub 网络往返
+        if (viewing) {
+          window.location.assign(pathname.startsWith('/edit/') ? editHrefOf(to) : docHref(to))
+          return
+        }
+        toast.push('success', `已移动到 ${to}`)
+        router.refresh()
+      })
+    } catch (err) {
+      // 推送冲突等：工作区可能已被回滚，刷新对齐服务端状态
+      toast.push('error', err instanceof Error ? err.message : '移动失败')
+      if (!viewing) router.refresh()
     }
-    toast.push('error', d.error ?? '移动失败')
   }
 
   /** 重命名：输入框只给文档名（不含目录前缀与扩展名），目录保持不变 */
@@ -286,22 +323,30 @@ export default function Sidebar({ tree, repoReady, canEdit, open, onClose }: Pro
     const res = await fetch(`/api/docs/${node.path.split('/').map(encodeURIComponent).join('/')}`, {
       method: 'DELETE',
     })
-    if (res.ok) {
-      // 正查看/编辑被删文档时跳回目录：同 moveDoc，整页跳转避开陈旧的 Router Cache
-      if (pathname === docHref(node.path) || pathname === editHrefOf(node.path)) {
-        window.location.assign('/docs')
-        return
-      }
-      toast.push('success', `已删除 ${node.path}`)
-    } else {
+    if (!res.ok) {
       const d = await res.json().catch(() => ({}))
       if (d.identityRequired) {
         router.push('/settings')
         return
       }
       toast.push('error', d.error ?? '删除失败')
+      return
     }
-    router.refresh()
+    // 正查看/编辑被删文档时跳回目录：同 moveDoc，整页跳转避开陈旧的 Router Cache
+    const viewing = pathname === docHref(node.path) || pathname === editHrefOf(node.path)
+    try {
+      await consumeWriteStream(res, () => {
+        if (viewing) {
+          window.location.assign('/docs')
+          return
+        }
+        toast.push('success', `已删除 ${node.path}`)
+        router.refresh()
+      })
+    } catch (err) {
+      toast.push('error', err instanceof Error ? err.message : '删除失败')
+      if (!viewing) router.refresh()
+    }
   }
 
   async function newDoc(dirPrefix = '') {

@@ -7,7 +7,7 @@ import { withWriteOp } from '@/lib/git/git'
 import { indexFile, removeFromIndex } from '@/lib/search/search'
 import { splitFrontmatter } from '@/lib/markdown/frontmatter'
 
-/** 重命名/移动文档 {from, to} */
+/** 重命名/移动文档 {from, to}；NDJSON 流式：committed（本地提交完成，推送在后台继续）→ done/error */
 export async function POST(req: Request) {
   const user = await getSessionUser()
   if (!user) return NextResponse.json({ error: '未登录' }, { status: 401 })
@@ -32,21 +32,33 @@ export async function POST(req: Request) {
   if (!fs.existsSync(fromAbs)) return NextResponse.json({ error: '源文件不存在' }, { status: 404 })
   if (fs.existsSync(toAbs)) return NextResponse.json({ error: '目标路径已存在' }, { status: 409 })
 
-  try {
-    const { head } = await withWriteOp(
-      { message: `docs: move ${from} -> ${toRel}`, author: identity },
-      () => {
-        fs.mkdirSync(path.dirname(toAbs), { recursive: true })
-        fs.renameSync(fromAbs, toAbs)
-      },
-    )
-    removeFromIndex(from)
-    const doc = readDoc(toAbs)
-    const { body } = splitFrontmatter(doc.content)
-    indexFile(toRel, doc.title, body)
-    return NextResponse.json({ ok: true, head, path: toRel })
-  } catch (err) {
-    console.error('[gitmd] 移动失败:', err)
-    return NextResponse.json({ error: err instanceof Error ? err.message : '移动失败' }, { status: 500 })
-  }
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (obj: Record<string, unknown>) => controller.enqueue(encoder.encode(JSON.stringify(obj) + '\n'))
+      try {
+        const { head } = await withWriteOp(
+          { message: `docs: move ${from} -> ${toRel}`, author: identity },
+          () => {
+            fs.mkdirSync(path.dirname(toAbs), { recursive: true })
+            fs.renameSync(fromAbs, toAbs)
+          },
+          (stage) => send(stage === 'committed' ? { stage, path: toRel } : { stage }),
+        )
+        removeFromIndex(from)
+        const doc = readDoc(toAbs)
+        const { body } = splitFrontmatter(doc.content)
+        indexFile(toRel, doc.title, body)
+        send({ stage: 'done', ok: true, head, path: toRel })
+      } catch (err) {
+        console.error('[gitmd] 移动失败:', err)
+        send({ stage: 'error', error: err instanceof Error ? err.message : '移动失败' })
+      } finally {
+        controller.close()
+      }
+    },
+  })
+  return new Response(stream, {
+    headers: { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store' },
+  })
 }
