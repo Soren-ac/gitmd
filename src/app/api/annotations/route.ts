@@ -12,10 +12,8 @@ function resolveDocRel(raw: string): string | null {
   return toRel(abs)
 }
 
-/** 列出文档批注（含当前版本的重定位结果） */
+/** 列出文档批注（含当前版本的重定位结果）；只读接口，匿名可访问 */
 export async function GET(req: Request) {
-  const user = await getSessionUser()
-  if (!user) return NextResponse.json({ error: '未登录' }, { status: 401 })
   const doc = new URL(req.url).searchParams.get('path') ?? ''
   const rel = resolveDocRel(doc)
   if (!rel) return NextResponse.json({ error: '非法路径' }, { status: 400 })

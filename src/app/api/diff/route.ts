@@ -1,11 +1,9 @@
 import { NextResponse } from 'next/server'
-import { getSessionUser } from '@/lib/auth/auth'
 import { resolveSafe, toRel } from '@/lib/content/docs'
 import { diffBetween, withGitLock } from '@/lib/git/git'
 
+// 只读接口：匿名可访问
 export async function GET(req: Request) {
-  const user = await getSessionUser()
-  if (!user) return NextResponse.json({ error: '未登录' }, { status: 401 })
   const url = new URL(req.url)
   const file = url.searchParams.get('path') ?? ''
   const from = url.searchParams.get('from') ?? ''

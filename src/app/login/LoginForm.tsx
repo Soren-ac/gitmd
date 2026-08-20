@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { AlertCircle } from 'lucide-react'
 
-export default function LoginForm() {
+export default function LoginForm({ next = '' }: { next?: string }) {
   const router = useRouter()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -22,7 +22,7 @@ export default function LoginForm() {
     })
     setLoading(false)
     if (res.ok) {
-      router.replace('/docs')
+      router.replace(next || '/docs')
       router.refresh()
     } else {
       const data = await res.json().catch(() => ({}))

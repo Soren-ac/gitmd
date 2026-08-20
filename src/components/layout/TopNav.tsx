@@ -9,6 +9,7 @@ import {
   Check,
   GitBranch,
   Link2,
+  LogIn,
   LogOut,
   Menu,
   MessageSquareText,
@@ -29,7 +30,7 @@ import { useToast } from '@/components/common/Toast'
 import { copyText } from '@/lib/clipboard'
 
 interface Props {
-  user: { username: string; role: string }
+  user: { username: string; role: string } | null
   onMenuClick: () => void
   onToggleSidebar: () => void
 }
@@ -107,8 +108,9 @@ export default function TopNav({ user, onMenuClick, onToggleSidebar }: Props) {
     }
   }, [])
 
-  // 未读提及轮询
+  // 未读提及轮询（仅登录用户）
   useEffect(() => {
+    if (!user) return
     let stopped = false
     async function load() {
       const res = await fetch('/api/annotations/mentions')
@@ -120,7 +122,7 @@ export default function TopNav({ user, onMenuClick, onToggleSidebar }: Props) {
       stopped = true
       clearInterval(timer)
     }
-  }, [])
+  }, [user])
 
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
@@ -196,24 +198,29 @@ export default function TopNav({ user, onMenuClick, onToggleSidebar }: Props) {
             {syncErr ? '同步失败' : syncOk ? `已同步 · ${relTime(sync?.state?.last_sync_at)}` : '同步中'}
           </span>
 
-          <Link className="btn btn-sm" href="/chat" title="文档助手">
-            <Sparkles size={13} />
-            文档助手
-          </Link>
+          {user && (
+            <Link className="btn btn-sm" href="/chat" title="文档助手">
+              <Sparkles size={13} />
+              文档助手
+            </Link>
+          )}
           <Link className="btn btn-icon" href="/recent" title="最近变更" aria-label="最近变更">
             <Activity size={15} />
           </Link>
-          <Link className="btn btn-icon" href="/annotations" title="批注中心" aria-label="批注中心">
-            <MessageSquareText size={15} />
-          </Link>
-          {editHref && (
+          {user && (
+            <Link className="btn btn-icon" href="/annotations" title="批注中心" aria-label="批注中心">
+              <MessageSquareText size={15} />
+            </Link>
+          )}
+          {user && editHref && (
             <Link className="btn btn-sm" href={editHref}>
               <Pencil size={13} />
               编辑
             </Link>
           )}
 
-          {/* 批注提及铃铛 */}
+          {/* 批注提及铃铛（仅登录用户） */}
+          {user && (
           <div className="user-menu-wrap" ref={mentionRef}>
             <button
               className="btn btn-icon mention-btn"
@@ -266,6 +273,7 @@ export default function TopNav({ user, onMenuClick, onToggleSidebar }: Props) {
               </div>
             )}
           </div>
+          )}
 
           <button className="btn btn-icon" onClick={copyLink} aria-label="复制页面链接" title="复制链接">
             <Link2 size={15} />
@@ -279,42 +287,53 @@ export default function TopNav({ user, onMenuClick, onToggleSidebar }: Props) {
             {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
           </button>
 
-          <div className="user-menu-wrap" ref={menuRef}>
-            <button
-              className="avatar-btn"
-              onClick={() => setMenuOpen(!menuOpen)}
-              aria-label="用户菜单"
-              aria-expanded={menuOpen}
-            >
-              {user.username.slice(0, 1).toUpperCase()}
-            </button>
-            {menuOpen && (
-              <div className="user-menu">
-                <div className="user-menu-head">
-                  {user.username}
-                  {user.role === 'admin' && <span className="role-badge">ADMIN</span>}
-                </div>
-                <Link href="/annotations" className="user-menu-item" onClick={() => setMenuOpen(false)}>
-                  <MessageSquareText size={14} />
-                  批注中心
-                </Link>
-                <Link href="/settings" className="user-menu-item" onClick={() => setMenuOpen(false)}>
-                  <UserCog size={14} />
-                  Git 身份设置
-                </Link>
-                {user.role === 'admin' && (
-                  <Link href="/admin" className="user-menu-item" onClick={() => setMenuOpen(false)}>
-                    <Settings size={14} />
-                    平台管理
+          {user ? (
+            <div className="user-menu-wrap" ref={menuRef}>
+              <button
+                className="avatar-btn"
+                onClick={() => setMenuOpen(!menuOpen)}
+                aria-label="用户菜单"
+                aria-expanded={menuOpen}
+              >
+                {user.username.slice(0, 1).toUpperCase()}
+              </button>
+              {menuOpen && (
+                <div className="user-menu">
+                  <div className="user-menu-head">
+                    {user.username}
+                    {user.role === 'admin' && <span className="role-badge">ADMIN</span>}
+                  </div>
+                  <Link href="/annotations" className="user-menu-item" onClick={() => setMenuOpen(false)}>
+                    <MessageSquareText size={14} />
+                    批注中心
                   </Link>
-                )}
-                <button className="user-menu-item" onClick={logout}>
-                  <LogOut size={14} />
-                  退出登录
-                </button>
-              </div>
-            )}
-          </div>
+                  <Link href="/settings" className="user-menu-item" onClick={() => setMenuOpen(false)}>
+                    <UserCog size={14} />
+                    Git 身份设置
+                  </Link>
+                  {user.role === 'admin' && (
+                    <Link href="/admin" className="user-menu-item" onClick={() => setMenuOpen(false)}>
+                      <Settings size={14} />
+                      平台管理
+                    </Link>
+                  )}
+                  <button className="user-menu-item" onClick={logout}>
+                    <LogOut size={14} />
+                    退出登录
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <Link
+              className="btn btn-sm"
+              href={'/login?next=' + encodeURIComponent(pathname)}
+              title="登录后可编辑与批注"
+            >
+              <LogIn size={13} />
+              登录
+            </Link>
+          )}
         </div>
       </header>
 

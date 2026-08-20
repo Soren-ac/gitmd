@@ -18,12 +18,11 @@ export default async function EditPage({ params, searchParams }: Props) {
   const { new: isNew } = await searchParams
   if (slug.length === 0) notFound()
 
-  // 未配置 git 身份 → 先去设置页（编辑需要以用户身份提交）
+  // 未登录 → 登录后回跳；已登录但未配置 git 身份 → 先去设置页（编辑需要以用户身份提交）
   const user = await getSessionUser()
-  if (!user || !gitIdentityOf(user)) {
-    const target = '/edit/' + slug.join('/') + (isNew ? '?new=1' : '')
-    redirect('/settings?next=' + encodeURIComponent(target))
-  }
+  const target = '/edit/' + slug.join('/') + (isNew ? '?new=1' : '')
+  if (!user) redirect('/login?next=' + encodeURIComponent(target))
+  if (!gitIdentityOf(user)) redirect('/settings?next=' + encodeURIComponent(target))
 
   const rel = slug.map(decodeURIComponent).join('/')
   const relMd = /\.mdx?$/i.test(rel) ? rel : `${rel}.md`

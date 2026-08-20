@@ -8,7 +8,7 @@ import type { TreeNode } from '@/lib/content/docs'
 
 interface Props {
   tree: TreeNode[]
-  user: { username: string; role: string }
+  user: { username: string; role: string } | null
   repoReady: boolean
   children: React.ReactNode
 }
@@ -69,13 +69,14 @@ export default function AppShell({ tree, user, repoReady, children }: Props) {
       <Sidebar
         tree={tree}
         repoReady={repoReady}
+        canEdit={!!user}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
       />
       {/* 拖拽调宽手柄：对齐侧边栏右缘 */}
       <div className="sidebar-resizer" onPointerDown={onResizeStart} aria-hidden />
       <main className="main-content">{children}</main>
-      <ChatWidget />
+      {user && <ChatWidget />}
     </>
   )
 }

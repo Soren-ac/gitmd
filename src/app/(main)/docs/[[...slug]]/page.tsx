@@ -6,6 +6,7 @@ import { Suspense } from 'react'
 import { parse as parseYaml } from 'yaml'
 import { Clock, FileText, Folder, GitCommitHorizontal, History, Pencil, Tag, Type, Users } from 'lucide-react'
 import { config } from '@/lib/core/config'
+import { getSessionUser } from '@/lib/auth/auth'
 import { fileContributors, fileLog, isRepoCloned, withGitLock } from '@/lib/git/git'
 import { readDoc, getDocTree, type TreeNode } from '@/lib/content/docs'
 import {
@@ -157,6 +158,7 @@ function DeferredSkeleton() {
 
 export default async function DocsPage({ params }: Props) {
   const { slug = [] } = await params
+  const user = await getSessionUser()
 
   if (!isRepoCloned()) {
     return (
@@ -263,10 +265,21 @@ export default async function DocsPage({ params }: Props) {
               </span>
             ))}
             <span className="spacer" />
-            <Link className="btn btn-sm" href={'/edit/' + relNoExt.split('/').map(encodeURIComponent).join('/')}>
-              <Pencil size={13} />
-              编辑
-            </Link>
+            {user ? (
+              <Link className="btn btn-sm" href={'/edit/' + relNoExt.split('/').map(encodeURIComponent).join('/')}>
+                <Pencil size={13} />
+                编辑
+              </Link>
+            ) : (
+              <Link
+                className="btn btn-sm"
+                href={'/login?next=' + encodeURIComponent('/edit/' + relNoExt.split('/').map(encodeURIComponent).join('/'))}
+                title="登录后可编辑"
+              >
+                <Pencil size={13} />
+                登录后编辑
+              </Link>
+            )}
             <Link
               className="btn btn-sm btn-ghost"
               href={'/history/' + relNoExt.split('/').map(encodeURIComponent).join('/')}
@@ -284,7 +297,7 @@ export default async function DocsPage({ params }: Props) {
             </Suspense>
           )}
         </article>
-        <AnnotationLayer doc={resolved.rel} />
+        <AnnotationLayer doc={resolved.rel} readOnly={!user} />
       </div>
 
       <aside className="right-rail">

@@ -41,7 +41,7 @@ function docPos(rect: DOMRect, popoverWidth: number) {
   return { x, y: rect.bottom + window.scrollY + 8 }
 }
 
-export default function AnnotationLayer({ doc }: { doc: string }) {
+export default function AnnotationLayer({ doc, readOnly = false }: { doc: string; readOnly?: boolean }) {
   const toast = useToast()
   const [anns, setAnns] = useState<Ann[]>([])
   const [sel, setSel] = useState<SelInfo | null>(null)
@@ -65,11 +65,12 @@ export default function AnnotationLayer({ doc }: { doc: string }) {
   }, [doc])
 
   useEffect(() => {
+    if (readOnly) return // 匿名只读：无需 identity（仅用于判定删除按钮归属）
     fetch('/api/auth/me')
       .then((r) => (r.ok ? r.json() : null))
       .then((u) => setMe(u?.git_name ?? ''))
       .catch(() => {})
-  }, [])
+  }, [readOnly])
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 异步加载完成后才 setState
@@ -162,8 +163,9 @@ export default function AnnotationLayer({ doc }: { doc: string }) {
     }
   }, [applyMarks, article, doc])
 
-  /* ---------- 选区 → 新建批注 ---------- */
+  /* ---------- 选区 → 新建批注（只读模式不启用） ---------- */
   useEffect(() => {
+    if (readOnly) return
     function onMouseUp() {
       const selection = window.getSelection()
       if (!selection || selection.isCollapsed || selection.rangeCount === 0) return
@@ -201,7 +203,7 @@ export default function AnnotationLayer({ doc }: { doc: string }) {
     }
     document.addEventListener('mouseup', onMouseUp)
     return () => document.removeEventListener('mouseup', onMouseUp)
-  }, [article])
+  }, [article, readOnly])
 
   /* ---------- 点击虚线标记 → 批注气泡 ---------- */
   useEffect(() => {
@@ -328,25 +330,27 @@ export default function AnnotationLayer({ doc }: { doc: string }) {
             <span className="annotation-comment-body">{c.body}</span>
           </div>
         ))}
-        <div className="annotation-card-actions">
-          <button
-            className="btn btn-sm btn-ghost"
-            onClick={() => action(a.id, 'resolve')}
-          >
-            {a.resolved ? <RotateCcw size={13} /> : <Check size={13} />}
-            {a.resolved ? '重新打开' : '标记解决'}
-          </button>
-          {a.author === me && (
+        {!readOnly && (
+          <div className="annotation-card-actions">
             <button
-              className="btn btn-icon btn-danger"
-              aria-label="删除批注"
-              title="删除批注"
-              onClick={() => action(a.id, 'delete')}
+              className="btn btn-sm btn-ghost"
+              onClick={() => action(a.id, 'resolve')}
             >
-              <Trash2 size={14} />
+              {a.resolved ? <RotateCcw size={13} /> : <Check size={13} />}
+              {a.resolved ? '重新打开' : '标记解决'}
             </button>
-          )}
-        </div>
+            {a.author === me && (
+              <button
+                className="btn btn-icon btn-danger"
+                aria-label="删除批注"
+                title="删除批注"
+                onClick={() => action(a.id, 'delete')}
+              >
+                <Trash2 size={14} />
+              </button>
+            )}
+          </div>
+        )}
       </div>
     )
   }
@@ -416,10 +420,12 @@ export default function AnnotationLayer({ doc }: { doc: string }) {
             </button>
           </div>
           <div className="annotation-thread-body">{openAnns.map(renderCard)}</div>
-          <button className="btn btn-sm btn-ghost annotation-append-btn" onClick={startAppend}>
-            <MessageSquarePlus size={13} />
-            追加批注
-          </button>
+          {!readOnly && (
+            <button className="btn btn-sm btn-ghost annotation-append-btn" onClick={startAppend}>
+              <MessageSquarePlus size={13} />
+              追加批注
+            </button>
+          )}
         </div>
       )}
 

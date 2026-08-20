@@ -5,12 +5,12 @@ import { isRepoCloned } from '@/lib/git/git'
 import { triggerSync } from '@/lib/git/sync'
 import { config } from '@/lib/core/config'
 
+// 只读状态：匿名可访问；repoUrl 仅登录用户可见（避免向匿名访客泄露仓库地址）
 export async function GET() {
   const user = await getSessionUser()
-  if (!user) return NextResponse.json({ error: '未登录' }, { status: 401 })
   return NextResponse.json({
     repoCloned: isRepoCloned(),
-    repoUrl: config.repoUrl ? config.repoUrl.replace(/\/\/.*@/, '//***@') : '',
+    ...(user ? { repoUrl: config.repoUrl ? config.repoUrl.replace(/\/\/.*@/, '//***@') : '' } : {}),
     branch: config.branch,
     pollIntervalMs: config.pollIntervalMs,
     state: getSyncState() ?? null,

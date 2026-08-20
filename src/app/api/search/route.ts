@@ -1,13 +1,11 @@
 import { NextResponse } from 'next/server'
-import { getSessionUser } from '@/lib/auth/auth'
 import { countDocs, searchDocs } from '@/lib/search/search'
 
 const PAGE_SIZE = 30
 const MAX_LIMIT = 100
 
+// 只读接口：匿名可访问
 export async function GET(req: Request) {
-  const user = await getSessionUser()
-  if (!user) return NextResponse.json({ error: '未登录' }, { status: 401 })
   const sp = new URL(req.url).searchParams
   const q = sp.get('q') ?? ''
   // 命令面板等旧调用方不带分页参数，行为不变（前 30 条）

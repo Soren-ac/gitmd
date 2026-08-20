@@ -21,6 +21,8 @@ import { useDialog } from '@/components/common/Dialog'
 interface Props {
   tree: TreeNode[]
   repoReady: boolean
+  /** 是否展示写操作入口（新建/重命名/删除），匿名用户为 false */
+  canEdit: boolean
   open: boolean
   onClose: () => void
 }
@@ -31,6 +33,7 @@ function docHref(path: string) {
 
 interface Ctx {
   collapseTick: number
+  canEdit: boolean
   onNavigate: () => void
   onNewDoc: (dir: string) => void
 }
@@ -121,19 +124,21 @@ function TreeItem({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: Ct
             <Folder size={14} className="tree-icon" />
             {node.name}
           </span>
-          <span className="ops">
-            <button
-              className="btn-icon btn"
-              aria-label={`在 ${node.name} 下新建文档`}
-              title={`在 ${node.name}/ 下新建文档`}
-              onClick={(e) => {
-                e.stopPropagation()
-                ctx.onNewDoc(node.path)
-              }}
-            >
-              <FilePlus2 size={13} />
-            </button>
-          </span>
+          {ctx.canEdit && (
+            <span className="ops">
+              <button
+                className="btn-icon btn"
+                aria-label={`在 ${node.name} 下新建文档`}
+                title={`在 ${node.name}/ 下新建文档`}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  ctx.onNewDoc(node.path)
+                }}
+              >
+                <FilePlus2 size={13} />
+              </button>
+            </span>
+          )}
         </div>
         <div className={`tree-collapse ${open ? 'open' : ''}`}>
           <div className="tree-children">
@@ -155,19 +160,21 @@ function TreeItem({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: Ct
         <FileText size={14} className="tree-icon" />
         {label}
       </Link>
-      <span className="ops">
-        <button className="btn-icon btn" aria-label={`重命名或移动 ${node.name}`} onClick={() => op('rename')}>
-          <Pencil size={13} />
-        </button>
-        <button className="btn-icon btn btn-danger" aria-label={`删除 ${node.name}`} onClick={() => op('delete')}>
-          <Trash2 size={13} />
-        </button>
-      </span>
+      {ctx.canEdit && (
+        <span className="ops">
+          <button className="btn-icon btn" aria-label={`重命名或移动 ${node.name}`} onClick={() => op('rename')}>
+            <Pencil size={13} />
+          </button>
+          <button className="btn-icon btn btn-danger" aria-label={`删除 ${node.name}`} onClick={() => op('delete')}>
+            <Trash2 size={13} />
+          </button>
+        </span>
+      )}
     </div>
   )
 }
 
-export default function Sidebar({ tree, repoReady, open, onClose }: Props) {
+export default function Sidebar({ tree, repoReady, canEdit, open, onClose }: Props) {
   const router = useRouter()
   const pathname = usePathname()
   const toast = useToast()
@@ -249,7 +256,7 @@ export default function Sidebar({ tree, repoReady, open, onClose }: Props) {
     }
   }
 
-  const ctx: Ctx = { collapseTick, onNavigate: onClose, onNewDoc: (dir) => void newDoc(dir) }
+  const ctx: Ctx = { collapseTick, canEdit, onNavigate: onClose, onNewDoc: (dir) => void newDoc(dir) }
 
   return (
     <>
@@ -276,13 +283,17 @@ export default function Sidebar({ tree, repoReady, open, onClose }: Props) {
             />
           </form>
           <div className="sidebar-actions">
-            <button className="btn btn-sm" style={{ flex: 1 }} onClick={() => void newDoc()}>
-              <FilePlus2 size={13} />
-              新建文档
-            </button>
-            <button className="btn btn-icon" onClick={newDir} aria-label="新建目录" title="新建目录">
-              <FolderPlus size={15} />
-            </button>
+            {canEdit && (
+              <>
+                <button className="btn btn-sm" style={{ flex: 1 }} onClick={() => void newDoc()}>
+                  <FilePlus2 size={13} />
+                  新建文档
+                </button>
+                <button className="btn btn-icon" onClick={newDir} aria-label="新建目录" title="新建目录">
+                  <FolderPlus size={15} />
+                </button>
+              </>
+            )}
             <button
               className="btn btn-icon"
               onClick={() => setCollapseTick((t) => t + 1)}
@@ -306,7 +317,7 @@ export default function Sidebar({ tree, repoReady, open, onClose }: Props) {
             <div className="empty-state">
               <FileText size={26} />
               <div className="empty-title">还没有文档</div>
-              <div className="empty-desc">点击上方「新建文档」创建第一篇</div>
+              {canEdit && <div className="empty-desc">点击上方「新建文档」创建第一篇</div>}
             </div>
           )}
           {filtered
