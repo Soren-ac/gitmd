@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { History, Maximize2, MessageSquarePlus, Sparkles, Trash2, X } from 'lucide-react'
 import ChatUI from '@/components/chat/ChatUI'
+import { chatStore, useChatState } from '@/lib/client/chatStore'
 
 interface ConvItem {
   id: string
@@ -25,7 +26,7 @@ export default function ChatWidget() {
   const [enabled, setEnabled] = useState(false)
   const [open, setOpen] = useState(false)
   const [listOpen, setListOpen] = useState(false)
-  const [conversationId, setConversationId] = useState<string | null>(null)
+  const { conversationId } = useChatState()
   const [convs, setConvs] = useState<ConvItem[]>([])
 
   const pageDoc = docPathOf(pathname)
@@ -51,14 +52,14 @@ export default function ChatWidget() {
   if (!enabled) return null
 
   function newChat() {
-    setConversationId(null)
+    chatStore.selectConversation(null)
     setListOpen(false)
   }
 
   async function removeConv(e: React.MouseEvent, id: string) {
     e.stopPropagation()
     await fetch(`/api/chat/conversations/${id}`, { method: 'DELETE' })
-    if (conversationId === id) setConversationId(null)
+    if (conversationId === id) chatStore.selectConversation(null)
     loadConvs()
   }
 
@@ -85,8 +86,12 @@ export default function ChatWidget() {
             <button
               className="btn btn-icon"
               aria-label="打开完整页面"
-              title="打开完整页面"
-              onClick={() => router.push('/chat')}
+              title="打开完整页面（接上当前进度）"
+              onClick={() => {
+                // 会话状态在共享 chatStore 里，/chat 页直接接上（含流式进度），抽屉随即关闭
+                setOpen(false)
+                router.push('/chat')
+              }}
             >
               <Maximize2 size={15} />
             </button>
@@ -102,7 +107,7 @@ export default function ChatWidget() {
                   key={c.id}
                   className={`chat-conv-item ${c.id === conversationId ? 'active' : ''}`}
                   onClick={() => {
-                    setConversationId(c.id)
+                    chatStore.selectConversation(c.id)
                     setListOpen(false)
                   }}
                 >
@@ -114,12 +119,7 @@ export default function ChatWidget() {
               ))}
             </div>
           )}
-          <ChatUI
-            conversationId={conversationId}
-            onConversationChange={setConversationId}
-            onConversationCreate={loadConvs}
-            contextDoc={pageDoc}
-          />
+          <ChatUI contextDoc={pageDoc} onConversationCreate={loadConvs} />
         </div>
       )}
       <button

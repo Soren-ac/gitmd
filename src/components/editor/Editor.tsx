@@ -152,7 +152,16 @@ export default function Editor({ path, docDir, initialFrontmatter, initialBody, 
           if (!line.trim()) continue
           const ev = JSON.parse(line)
           if (ev.type === 'delta') {
-            setAssist((a) => (a ? { ...a, result: a.result + (ev.newBlock && a.result ? '\n\n' : '') + ev.text } : a))
+            setAssist((a) => {
+              if (!a) return a
+              // 与 chatStore 一致的边界归一化：防止行尾换行与块间分隔叠加出空白行
+              const text: string = ev.text
+              if (ev.newBlock && a.result) {
+                const body = text.replace(/^\n+/, '')
+                return { ...a, result: a.result.replace(/\n+$/, '') + (body ? '\n\n' + body : '') }
+              }
+              return { ...a, result: a.result + text }
+            })
           } else if (ev.type === 'error') {
             throw new Error(ev.error)
           }

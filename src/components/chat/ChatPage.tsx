@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { MessageSquarePlus, Sparkles, Trash2 } from 'lucide-react'
 import ChatUI from '@/components/chat/ChatUI'
+import { chatStore, useChatState } from '@/lib/client/chatStore'
 
 interface ConvItem {
   id: string
@@ -10,9 +11,9 @@ interface ConvItem {
   updatedAt: string
 }
 
-/** /chat 独立页面：左列会话列表 + 右侧对话区 */
+/** /chat 独立页面：左列会话列表 + 右侧对话区（与悬浮窗共享 chatStore，进度实时同步） */
 export default function ChatPage() {
-  const [conversationId, setConversationId] = useState<string | null>(null)
+  const { conversationId } = useChatState()
   const [convs, setConvs] = useState<ConvItem[]>([])
 
   const loadConvs = useCallback(() => {
@@ -29,14 +30,14 @@ export default function ChatPage() {
   async function removeConv(e: React.MouseEvent, id: string) {
     e.stopPropagation()
     await fetch(`/api/chat/conversations/${id}`, { method: 'DELETE' })
-    if (conversationId === id) setConversationId(null)
+    if (conversationId === id) chatStore.selectConversation(null)
     loadConvs()
   }
 
   return (
     <div className="chat-page">
       <aside className="chat-page-side">
-        <button className="btn btn-primary chat-new-btn" onClick={() => setConversationId(null)}>
+        <button className="btn btn-primary chat-new-btn" onClick={() => chatStore.selectConversation(null)}>
           <MessageSquarePlus size={14} />
           新对话
         </button>
@@ -46,7 +47,7 @@ export default function ChatPage() {
             <button
               key={c.id}
               className={`chat-conv-item ${c.id === conversationId ? 'active' : ''}`}
-              onClick={() => setConversationId(c.id)}
+              onClick={() => chatStore.selectConversation(c.id)}
             >
               <span className="chat-conv-title">{c.title}</span>
               <span className="chat-conv-del" role="button" aria-label="删除会话" onClick={(e) => removeConv(e, c.id)}>
@@ -62,12 +63,7 @@ export default function ChatPage() {
           文档助手
           <span className="muted" style={{ fontWeight: 400 }}>基于文档仓库回答，附来源链接</span>
         </div>
-        <ChatUI
-          conversationId={conversationId}
-          onConversationChange={setConversationId}
-          onConversationCreate={loadConvs}
-          contextDoc={null}
-        />
+        <ChatUI contextDoc={null} onConversationCreate={loadConvs} />
       </div>
     </div>
   )

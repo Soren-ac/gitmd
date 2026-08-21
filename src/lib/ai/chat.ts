@@ -47,7 +47,8 @@ const SYSTEM_APPEND = `你是 GitMD 文档平台内置的文档助手。当前�
 3. 若问题附带了【检索线索】，那是全文索引搜出的候选文档，优先 Read 它们确认是否切题，切题就基于其内容作答，必要时再用 Grep/Glob 扩大范围。
 4. 引用来源时使用 markdown 链接：[文档标题](仓库相对路径.md)，例如 [部署指南](guide/deployment.md)。
 5. 你只有只读工具：不要创建、修改或删除任何文件，不要执行写操作。
-6. 用户可能用「它/这篇/那个」指代上文提到的文档，结合多轮上下文理解。`
+6. 用户可能用「它/这篇/那个」指代上文提到的文档，结合多轮上下文理解。
+7. 工具调用轮次有限：相互独立的 Read/Grep/Glob 必须在同一轮里并行发起，不要一篇一篇串行读；精读不超过 5 篇，尽快给出最终回答。`
 
 export type ChatEvent =
   | { type: 'delta'; text: string; newBlock?: boolean }
@@ -124,9 +125,17 @@ async function* runQuery(prompt: string, opts: QueryOpts, signal: AbortSignal): 
     let toolSinceLastText = false
     let pendingNew = false
     let acc = ''
-    const append = (text: string, newBlock: boolean): string => {
-      acc += (newBlock && acc ? '\n\n' : '') + text
-      return text
+    /* 块边界补段落分隔时做归一化：剥掉上文尾部与块首的换行后再补单个 \n\n——
+     * 否则模型 narrate 文本自带行尾换行时与分隔叠加，流式期间空白行随工具调用
+     * 次数越积越多（终渲染走 markdown 会被折叠，所以最终又"消失"） */
+    const append = (text: string, newBlock: boolean): void => {
+      if (newBlock && acc) {
+        const body = text.replace(/^\n+/, '')
+        acc = acc.replace(/\n+$/, '')
+        if (body) acc += '\n\n' + body
+      } else {
+        acc += text
+      }
     }
 
     for await (const msg of q) {
@@ -172,6 +181,11 @@ async function* runQuery(prompt: string, opts: QueryOpts, signal: AbortSignal): 
         finished = true
         if (msg.subtype === 'success') {
           yield { type: 'done', fullText: acc }
+        } else if (msg.subtype === 'error_max_turns') {
+          yield {
+            type: 'error',
+            error: '检索步数达到上限仍未给出结论：请把问题问得更具体（指明文档名/关键词），或换个问法重试',
+          }
         } else {
           yield { type: 'error', error: `模型调用未成功（${msg.subtype}）` }
         }
@@ -240,7 +254,8 @@ export async function* streamChat(
 ): AsyncGenerator<ChatEvent> {
   yield* runQuery(
     message + retrievalHints(message),
-    { sessionId, allowedTools: ['Read', 'Grep', 'Glob'], maxTurns: 10, systemAppend: SYSTEM_APPEND },
+    // maxTurns 要给足：第三方模型较少并行工具调用，串行 Read 几篇候选文档就会烧掉十几轮
+    { sessionId, allowedTools: ['Read', 'Grep', 'Glob'], maxTurns: 48, systemAppend: SYSTEM_APPEND },
     signal,
   )
 }
