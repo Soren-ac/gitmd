@@ -913,9 +913,13 @@ html.sidebar-dragging .sidebar { transition: none !important; }
 }
 .md-body a:hover { text-decoration: underline; text-decoration-color: var(--accent); }
 .md-body strong { font-weight: 600; }
-.md-body ul, .md-body ol { padding-left: 1.5em; margin: 14px 0; }
+/* Tailwind preflight 把 list-style 置 none，正文列表需要显式恢复 */
+.md-body ul { padding-left: 1.5em; margin: 14px 0; list-style: disc; }
+.md-body ol { padding-left: 1.5em; margin: 14px 0; list-style: decimal; }
 .md-body li { margin: 5px 0; }
 .md-body li::marker { color: var(--text-tertiary); }
+.md-body ul ul { list-style: circle; }
+.md-body ul ul ul { list-style: square; }
 .md-body hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
 .md-body code {
   background: var(--hover);
@@ -926,7 +930,8 @@ html.sidebar-dragging .sidebar { transition: none !important; }
   font-size: 0.85em;
 }
 .md-body mark { background: #fef08a; color: #171a21; padding: 0 2px; border-radius: 3px; }
-.contains-task-list { list-style: none; padding-left: 0.2em !important; }
+/* 任务列表只要 checkbox 不要圆点：需压过 .md-body ul 的 list-style 恢复规则 */
+.md-body .contains-task-list { list-style: none; padding-left: 0.2em !important; }
 .contains-task-list input[type='checkbox'] { margin-right: 7px; accent-color: var(--accent); }
 
 /* ---------- 引用块 / Callout ---------- */
