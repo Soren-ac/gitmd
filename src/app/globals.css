@@ -597,7 +597,7 @@ html.sidebar-dragging .sidebar { transition: none !important; }
   flex-direction: column;
   gap: 8px;
 }
-.sidebar-actions { display: flex; gap: 6px; align-items: center; }
+.sidebar-actions { display: flex; gap: 6px; align-items: center; position: relative; }
 
 .search-box { position: relative; }
 .search-box > svg {
@@ -666,13 +666,16 @@ html.sidebar-dragging .sidebar { transition: none !important; }
 .tree-item:hover .ops { display: inline-flex; }
 .tree-item .ops .btn-icon { width: 24px; height: 24px; }
 
-/* 排序方式：图标按钮 + 小弹出菜单（不占整行）；左对齐按钮（侧边栏贴屏幕左缘，右对齐会溢出屏外） */
-.tree-sort-wrap { position: relative; }
+/* 排序方式：图标按钮 + 小弹出菜单（不占整行）。
+ * 菜单对齐操作行右缘（.sidebar-actions 为定位祖先）：按钮在行内的位置随登录态变化，
+ * 对齐按钮本身会在屏边溢出（匿名态）或被侧边栏 overflow:hidden 截断（登录态）；
+ * 操作行右缘距屏边恒 ≥ 侧边栏最小宽(200px) - 内边距，132px 菜单总能完整放下 */
+.tree-sort-wrap { position: static; }
 .tree-sort-on { color: var(--accent); }
 .tree-sort-menu {
   position: absolute;
-  top: 30px;
-  left: 0;
+  top: calc(100% + 4px);
+  right: 0;
   z-index: 70;
   min-width: 132px;
   padding: 5px;
@@ -726,10 +729,12 @@ html.sidebar-dragging .sidebar { transition: none !important; }
 /* ============================================================
    文档三栏布局
    ============================================================ */
+/* 三栏布局：宽屏流体增长（可读性上限内）
+   正文 800→1080px、右栏 220→300px 随视口扩展，整体上限 1680px */
 .doc-layout {
   display: flex;
   gap: 40px;
-  max-width: 1240px;
+  max-width: min(1680px, 100%);
   margin: 0 auto;
   padding: 32px 40px 96px;
   align-items: flex-start;
@@ -737,11 +742,11 @@ html.sidebar-dragging .sidebar { transition: none !important; }
 .doc-article {
   flex: 1;
   min-width: 0;
-  max-width: 800px;
+  max-width: clamp(800px, 55vw, 1080px);
   margin: 0 auto;
 }
 .right-rail {
-  width: 220px;
+  width: clamp(220px, 16vw, 300px);
   flex-shrink: 0;
   position: sticky;
   top: calc(var(--nav-h) + var(--nav-margin) + 16px);
@@ -750,7 +755,7 @@ html.sidebar-dragging .sidebar { transition: none !important; }
 }
 
 .doc-container {
-  max-width: 880px;
+  max-width: clamp(880px, 60vw, 1150px);
   margin: 0 auto;
   padding: 32px 40px 96px;
 }
@@ -2497,7 +2502,7 @@ table.admin-table tbody tr:hover { background: var(--hover); }
   gap: 16px;
   height: calc(100vh - var(--nav-h) - var(--nav-margin) - 32px);
   padding: 16px 20px 16px;
-  max-width: 1240px;
+  max-width: min(1600px, 100%);
   margin: 0 auto;
 }
 .chat-page-side {
