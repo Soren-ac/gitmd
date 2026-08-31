@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
+  ArrowDownWideNarrow,
+  Check,
   ChevronLeft,
   ChevronRight,
   FilePlus2,
@@ -52,6 +54,29 @@ function collectDirs(nodes: TreeNode[], depth = 0, out: { path: string; name: st
     }
   }
   return out
+}
+
+type TreeSort = 'default' | 'mtime'
+const SORT_KEY = 'gitmd-tree-sort'
+
+/** 目录的「活跃时间」= 后代文件的最大 mtime（按修改时间排序时目录也跟随活跃度） */
+function dirMaxMtime(n: TreeNode): number {
+  if (n.type === 'file') return n.mtime ?? 0
+  let m = 0
+  for (const c of n.children ?? []) m = Math.max(m, dirMaxMtime(c))
+  return m
+}
+
+/** 按修改时间新→老排序：保持目录在前的分组，目录按活跃度、文件按 mtime；并列/无记录按名称 */
+function sortTreeByMtime(nodes: TreeNode[]): TreeNode[] {
+  const sorted = [...nodes].sort((a, b) => {
+    if (a.type !== b.type) return a.type === 'dir' ? -1 : 1
+    const am = a.type === 'file' ? (a.mtime ?? 0) : dirMaxMtime(a)
+    const bm = b.type === 'file' ? (b.mtime ?? 0) : dirMaxMtime(b)
+    if (am !== bm) return bm - am
+    return a.name.localeCompare(b.name, 'zh-CN')
+  })
+  return sorted.map((n) => (n.children ? { ...n, children: sortTreeByMtime(n.children) } : n))
 }
 
 const DRAG_TYPE = 'application/x-gitmd-doc'
@@ -207,10 +232,36 @@ export default function Sidebar({ tree, repoReady, canEdit, open, onClose }: Pro
   const dialog = useDialog()
   const [filter, setFilter] = useState('')
   const [collapseTick, setCollapseTick] = useState(0)
+  const [sortBy, setSortBy] = useState<TreeSort>('default')
+  const [sortOpen, setSortOpen] = useState(false)
+  const sortRef = useRef<HTMLDivElement>(null)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
   const [menu, setMenu] = useState<CtxMenuState | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const asideRef = useRef<HTMLElement>(null)
+
+  // 排序偏好持久化（localStorage 仅客户端可读，挂载后恢复避免 SSR 不一致）
+  useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect -- 偏好存在 localStorage，挂载后同步一次 */
+    const v = localStorage.getItem(SORT_KEY)
+    if (v === 'mtime' || v === 'default') setSortBy(v)
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [])
+
+  // 排序菜单：点外部关闭
+  useEffect(() => {
+    if (!sortOpen) return
+    const onDown = (e: MouseEvent) => {
+      if (sortRef.current && !sortRef.current.contains(e.target as Node)) setSortOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [sortOpen])
+
+  function changeSort(v: TreeSort) {
+    setSortBy(v)
+    localStorage.setItem(SORT_KEY, v)
+  }
 
   const filtered = useMemo(() => {
     const f = filter.trim().toLowerCase()
@@ -223,8 +274,12 @@ export default function Sidebar({ tree, repoReady, canEdit, open, onClose }: Pro
       }
     }
     walk(tree)
+    // 筛选结果同样遵循排序规则
+    if (sortBy === 'mtime') out.sort((a, b) => (b.mtime ?? 0) - (a.mtime ?? 0))
     return out
-  }, [filter, tree])
+  }, [filter, tree, sortBy])
+
+  const sortedTree = useMemo(() => (sortBy === 'mtime' ? sortTreeByMtime(tree) : tree), [tree, sortBy])
 
   const dirs = useMemo(() => collectDirs(tree), [tree])
 
@@ -501,6 +556,41 @@ export default function Sidebar({ tree, repoReady, canEdit, open, onClose }: Pro
                 </button>
               </>
             )}
+            <div className="tree-sort-wrap" ref={sortRef}>
+              <button
+                className={`btn btn-icon ${sortBy !== 'default' ? 'tree-sort-on' : ''}`}
+                onClick={() => setSortOpen((v) => !v)}
+                aria-label="目录排序方式"
+                aria-expanded={sortOpen}
+                title="目录排序方式"
+              >
+                <ArrowDownWideNarrow size={15} />
+              </button>
+              {sortOpen && (
+                <div className="tree-sort-menu" role="menu">
+                  {(
+                    [
+                      ['default', '默认排序'],
+                      ['mtime', '最近修改优先'],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <button
+                      key={value}
+                      className="user-menu-item"
+                      role="menuitemradio"
+                      aria-checked={sortBy === value}
+                      onClick={() => {
+                        changeSort(value)
+                        setSortOpen(false)
+                      }}
+                    >
+                      {sortBy === value ? <Check size={13} /> : <span className="tree-sort-check" />}
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <button
               className="btn btn-icon"
               onClick={() => setCollapseTick((t) => t + 1)}
@@ -547,7 +637,7 @@ export default function Sidebar({ tree, repoReady, canEdit, open, onClose }: Pro
                   </Link>
                 </div>
               ))
-            : tree.map((n) => <TreeItem key={n.path} node={n} depth={0} ctx={ctx} />)}
+            : sortedTree.map((n) => <TreeItem key={n.path} node={n} depth={0} ctx={ctx} />)}
         </nav>
       </aside>
 

@@ -666,6 +666,24 @@ html.sidebar-dragging .sidebar { transition: none !important; }
 .tree-item:hover .ops { display: inline-flex; }
 .tree-item .ops .btn-icon { width: 24px; height: 24px; }
 
+/* 排序方式：图标按钮 + 小弹出菜单（不占整行）；左对齐按钮（侧边栏贴屏幕左缘，右对齐会溢出屏外） */
+.tree-sort-wrap { position: relative; }
+.tree-sort-on { color: var(--accent); }
+.tree-sort-menu {
+  position: absolute;
+  top: 30px;
+  left: 0;
+  z-index: 70;
+  min-width: 132px;
+  padding: 5px;
+  background: var(--surface-solid);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-pop);
+}
+.tree-sort-menu .user-menu-item { white-space: nowrap; font-size: 12.5px; }
+.tree-sort-check { width: 13px; flex-shrink: 0; }
+
 /* 拖拽移动文档：目录/根区放置目标高亮 */
 .tree-item.drop-target {
   background: var(--accent-subtle);

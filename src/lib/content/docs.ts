@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
 import { config } from '@/lib/core/config'
 import { splitFrontmatter } from '@/lib/markdown/frontmatter'
 
@@ -24,13 +25,37 @@ export interface TreeNode {
   name: string
   path: string // 仓库相对路径
   type: 'dir' | 'file'
+  /** 文件最后一次提交时间（unix 秒）；取不到（无提交/超出扫描范围）为 0 */
+  mtime?: number
   children?: TreeNode[]
 }
 
 const IGNORED = new Set(['.git', 'node_modules', '.next', 'assets'])
 
+/** 一次 git log 扫描出每个文件的最后提交时间（新→旧遍历，首见即最终）。
+ *  上限 2000 个提交，防止超大仓库全量扫描拖慢建树；超出范围的文件 mtime=0 排最后 */
+function lastCommitTimes(): Map<string, number> {
+  const map = new Map<string, number>()
+  try {
+    const out = execFileSync(
+      'git',
+      // @@@ 前缀标记提交行，避免与「纯数字文件名」混淆；quotePath=false 让中文路径不转义
+      ['-c', 'core.quotePath=false', 'log', '--format=@@@%ct', '--name-only', '--diff-filter=AMR', '--max-count=2000'],
+      { cwd: config.repoDir, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+    )
+    let ts = 0
+    for (const line of out.split('\n')) {
+      if (line.startsWith('@@@')) ts = Number(line.slice(3))
+      else if (line && ts && !map.has(line)) map.set(line, ts)
+    }
+  } catch {
+    // 无提交记录（新仓库）等：返回空表，全部按 0 处理
+  }
+  return map
+}
+
 /** 文档树：目录 + md 文件（assets 等资源目录不进树） */
-export function buildTree(dir: string = config.repoDir): TreeNode[] {
+export function buildTree(dir: string = config.repoDir, times?: Map<string, number>): TreeNode[] {
   let entries: fs.Dirent[]
   try {
     entries = fs.readdirSync(dir, { withFileTypes: true })
@@ -43,12 +68,12 @@ export function buildTree(dir: string = config.repoDir): TreeNode[] {
     if (IGNORED.has(e.name)) continue
     const abs = path.join(dir, e.name)
     if (e.isDirectory()) {
-      const children = buildTree(abs)
+      const children = buildTree(abs, times)
       if (children.length > 0) {
         nodes.push({ name: e.name, path: toRel(abs), type: 'dir', children })
       }
     } else if (/\.mdx?$/i.test(e.name)) {
-      nodes.push({ name: e.name, path: toRel(abs), type: 'file' })
+      nodes.push({ name: e.name, path: toRel(abs), type: 'file', mtime: times?.get(toRel(abs)) ?? 0 })
     }
   }
   nodes.sort((a, b) => {
@@ -72,7 +97,7 @@ export function invalidateTreeCache() {
 export function getDocTree(): TreeNode[] {
   if (gTree.__gitmdTreeCache) return gTree.__gitmdTreeCache
   if (!fs.existsSync(path.join(config.repoDir, '.git'))) return []
-  gTree.__gitmdTreeCache = buildTree()
+  gTree.__gitmdTreeCache = buildTree(config.repoDir, lastCommitTimes())
   return gTree.__gitmdTreeCache
 }
 
