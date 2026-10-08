@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Clock, CornerDownLeft, FilePlus2, FileText, Loader2, Moon, Search, Settings } from 'lucide-react'
 import { getRecent, type RecentItem } from '@/components/layout/DocTracker'
 import { applyTheme } from '@/lib/client/theme'
+import { applyUiTheme } from '@/lib/client/ui-theme'
 import { useDialog } from '@/components/common/Dialog'
 
 interface Props {
@@ -72,6 +73,12 @@ export default function CommandPalette({ open, onClose }: Props) {
     onClose()
   }, [onClose])
 
+  const toggleUiTheme = useCallback(() => {
+    const current = document.documentElement.dataset.uiTheme === 'dashboard' ? 'dashboard' : 'editorial'
+    applyUiTheme(current === 'editorial' ? 'dashboard' : 'editorial')
+    onClose()
+  }, [onClose])
+
   const rows: Row[] = []
   if (!q.trim()) {
     recent.forEach((r) =>
@@ -90,6 +97,7 @@ export default function CommandPalette({ open, onClose }: Props) {
         })
     } })
     rows.push({ kind: 'command', label: '切换深色 / 浅色', sub: '命令', action: toggleTheme })
+    rows.push({ kind: 'command', label: '切换界面主题', sub: '编辑排版室 / 仪表盘', action: toggleUiTheme })
     rows.push({ kind: 'command', label: '平台管理', sub: '命令', href: '/admin' })
   } else {
     const titleHits = hits.filter((h) => h.title.includes(q.trim()))

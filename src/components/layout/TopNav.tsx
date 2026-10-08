@@ -15,6 +15,7 @@ import {
   MessageSquareText,
   Moon,
   PanelLeft,
+  Palette,
   Pencil,
   RefreshCw,
   Search,
@@ -26,6 +27,7 @@ import {
 } from 'lucide-react'
 import CommandPalette from '@/components/layout/CommandPalette'
 import { applyTheme } from '@/lib/client/theme'
+import { applyUiTheme, currentUiTheme, type UiTheme } from '@/lib/client/ui-theme'
 import { useToast } from '@/components/common/Toast'
 import { copyText } from '@/lib/clipboard'
 
@@ -69,6 +71,7 @@ export default function TopNav({ user, onMenuClick, onToggleSidebar }: Props) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [sync, setSync] = useState<SyncState | null>(null)
   const [theme, setTheme] = useState<'dark' | 'light'>('light')
+  const [uiTheme, setUiTheme] = useState<UiTheme>('editorial')
   const [mentions, setMentions] = useState<{ count: number; items: MentionItem[] } | null>(null)
   const [mentionOpen, setMentionOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -77,10 +80,16 @@ export default function TopNav({ user, onMenuClick, onToggleSidebar }: Props) {
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect -- 主题存在 DOM data 属性上，挂载后同步一次 */
     setTheme(document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light')
+    setUiTheme(currentUiTheme())
     /* eslint-enable react-hooks/set-state-in-effect */
     const onTheme = () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light')
+    const onUiTheme = () => setUiTheme(currentUiTheme())
     window.addEventListener('gitmd-theme', onTheme)
-    return () => window.removeEventListener('gitmd-theme', onTheme)
+    window.addEventListener('gitmd-ui-theme', onUiTheme)
+    return () => {
+      window.removeEventListener('gitmd-theme', onTheme)
+      window.removeEventListener('gitmd-ui-theme', onUiTheme)
+    }
   }, [])
 
   useEffect(() => {
@@ -135,6 +144,10 @@ export default function TopNav({ user, onMenuClick, onToggleSidebar }: Props) {
 
   function toggleTheme() {
     applyTheme(theme === 'dark' ? 'light' : 'dark')
+  }
+
+  function toggleUiTheme() {
+    applyUiTheme(uiTheme === 'editorial' ? 'dashboard' : 'editorial')
   }
 
   async function copyLink() {
@@ -285,6 +298,14 @@ export default function TopNav({ user, onMenuClick, onToggleSidebar }: Props) {
             title={theme === 'dark' ? '浅色模式' : '深色模式'}
           >
             {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+          </button>
+          <button
+            className="btn btn-icon"
+            onClick={toggleUiTheme}
+            aria-label={uiTheme === 'editorial' ? '切换到仪表盘主题' : '切换到编辑排版室主题'}
+            title={uiTheme === 'editorial' ? '仪表盘主题' : '编辑排版室主题'}
+          >
+            <Palette size={15} />
           </button>
 
           {user ? (

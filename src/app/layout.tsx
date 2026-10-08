@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { IBM_Plex_Mono, Literata, Newsreader } from 'next/font/google'
+import { DEFAULT_UI_THEME } from '@/lib/client/ui-theme'
 import 'katex/dist/katex.min.css'
 import './globals.css'
 
@@ -33,8 +34,10 @@ export const metadata: Metadata = {
   description: 'Git 驱动的团队文档平台',
 }
 
-// 在首次绘制前确定主题与侧边栏状态（折叠/宽度），避免闪烁；无存储偏好时跟随系统主题
+// 在首次绘制前确定 UI 主题、颜色模式与侧边栏状态，避免首屏闪烁。
 const themeInit = `(function(){try{
+var ui=localStorage.getItem('gitmd-ui-theme');
+document.documentElement.dataset.uiTheme=ui==='dashboard'||ui==='editorial'?ui:'${DEFAULT_UI_THEME}';
 var t=localStorage.getItem('gitmd-theme');if(!t){t=window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'}
 document.documentElement.dataset.theme=t;
 if(localStorage.getItem('gitmd-sidebar')==='collapsed')document.documentElement.dataset.sidebar='collapsed';
@@ -47,6 +50,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html
       lang="zh-CN"
       suppressHydrationWarning
+      data-ui-theme={DEFAULT_UI_THEME}
       className={`${newsreader.variable} ${literata.variable} ${plexMono.variable}`}
     >
       <head>

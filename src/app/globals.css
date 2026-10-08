@@ -1,12 +1,14 @@
 @import "tailwindcss";
 
 /* ============================================================
-   GitMD Design Tokens — 编辑排版室（纸面 / 墨色 / 森林绿）
+   GitMD UI Theme — editorial / 编辑排版室（纸面 / 墨色 / 森林绿）
 
    取自 refactoring-ui 的约束：颜色全部预先定义成 9 级色阶，
    不在运行期用 lighten()/darken() 现算；间距与字号走固定尺度；
    文字色只有三级，且都 ≥4.5:1。
    实现层只引用语义名（--text / --accent …），因此换肤不必改组件。
+   当前 token 是 editorial 主题的默认实现；颜色模式仍由 [data-theme] 单独控制。
+   新 UI 主题只需在 [data-ui-theme='<name>'] 下覆盖同一组语义 token，组件无需改动。
    ============================================================ */
 :root {
   /* ---------- 浅色：暖白纸面 ---------- */
@@ -139,6 +141,98 @@
   --elev-1: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-float: 0 1px 3px rgba(0, 0, 0, 0.35);
   --shadow-pop: 0 4px 6px rgba(0, 0, 0, 0.34), 0 10px 24px rgba(0, 0, 0, 0.44);
+}
+
+/* 兼容主题：保留改版前的 SaaS 仪表盘语言，便于用户在两种工作语境间切换。
+   组件继续只消费语义 token；结构差异集中在本主题覆盖层。 */
+[data-ui-theme='dashboard'] {
+  --bg: #f5f6f8;
+  --bg-content: #ffffff;
+  --surface-solid: #ffffff;
+  --glass: rgba(255, 255, 255, 0.8);
+  --glass-strong: rgba(255, 255, 255, 0.92);
+  --border: rgba(15, 23, 42, 0.09);
+  --border-strong: rgba(15, 23, 42, 0.16);
+  --hover: rgba(15, 23, 42, 0.05);
+  --text: #101828;
+  --text-secondary: #475467;
+  --text-tertiary: #667085;
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --accent-subtle: rgba(79, 70, 229, 0.09);
+  --accent-ring: rgba(79, 70, 229, 0.16);
+  --on-accent: #ffffff;
+  --radius-sm: 7px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --shadow-float: 0 1px 2px rgba(15, 23, 42, 0.05), 0 8px 24px rgba(15, 23, 42, 0.08);
+  --shadow-pop: 0 2px 6px rgba(15, 23, 42, 0.06), 0 16px 44px rgba(15, 23, 42, 0.14);
+  --font-cjk-serif: var(--font-sans);
+}
+[data-theme='dark'][data-ui-theme='dashboard'] {
+  --bg: #090b10;
+  --bg-content: #10141c;
+  --surface-solid: #171c27;
+  --glass: rgba(18, 22, 31, 0.8);
+  --glass-strong: rgba(23, 28, 39, 0.94);
+  --border: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --hover: rgba(255, 255, 255, 0.05);
+  --text: #edf0f6;
+  --text-secondary: #9aa4b8;
+  --text-tertiary: #7d879c;
+  --accent: #9aa0ff;
+  --accent-hover: #b3b7ff;
+  --accent-subtle: rgba(154, 160, 255, 0.13);
+  --accent-ring: rgba(154, 160, 255, 0.24);
+}
+[data-ui-theme='dashboard'] .topnav {
+  top: var(--nav-margin);
+  left: var(--nav-margin);
+  right: var(--nav-margin);
+  padding: 0 14px;
+  background: var(--glass);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-float);
+}
+[data-ui-theme='dashboard'] .sidebar {
+  top: calc(var(--nav-h) + var(--nav-margin) + 8px);
+  left: var(--nav-margin);
+  bottom: var(--nav-margin);
+  background: var(--glass);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-float);
+}
+[data-ui-theme='dashboard'] .main-content {
+  margin-left: calc(var(--sidebar-w) + var(--nav-margin) * 2);
+  padding-top: calc(var(--nav-h) + var(--nav-margin) + 8px);
+}
+[data-ui-theme='dashboard'] .sidebar-resizer {
+  top: calc(var(--nav-h) + var(--nav-margin) + 8px);
+  bottom: var(--nav-margin);
+  left: calc(var(--sidebar-w) + var(--nav-margin) * 2 - 4px);
+}
+[data-ui-theme='dashboard'] .editor-shell {
+  height: calc(100vh - var(--nav-h) - var(--nav-margin) - 20px);
+  margin: 0 12px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--glass);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  box-shadow: var(--shadow-float);
+}
+@media (max-width: 1023px) {
+  [data-ui-theme='dashboard'] .main-content { margin-left: 0; }
+  [data-ui-theme='dashboard'] .sidebar { top: var(--nav-margin); }
+  [data-ui-theme='dashboard'] .sidebar.open { box-shadow: var(--shadow-pop); }
 }
 
 /* ============================================================
