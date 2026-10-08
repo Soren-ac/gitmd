@@ -1022,7 +1022,7 @@ html.sidebar-dragging .sidebar { transition: none !important; }
   border: 1px solid var(--border);
   color: var(--text);
   padding: 0.1em 0.38em;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   font-size: 0.85em;
 }
 .md-body mark { background: #f5e6a8; color: var(--ink-900); padding: 0 2px; border-radius: 2px; }
@@ -1223,6 +1223,10 @@ html.sidebar-dragging .sidebar { transition: none !important; }
 }
 .md-body pre code {
   background: none;
+  /* 必须同时清掉行内代码继承来的 border/border-radius，
+     否则代码块的每一行都会各自画一个方框 */
+  border: none;
+  border-radius: 0;
   padding: 0;
   font-size: 13px;
   line-height: 1.7;
