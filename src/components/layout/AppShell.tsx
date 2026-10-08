@@ -42,8 +42,8 @@ export default function AppShell({ tree, user, repoReady, children }: Props) {
 
     const onMove = (ev: PointerEvent) => {
       if (!dragging.current) return
-      // 手柄中线 = 左边距*2 + 宽度
-      const w = Math.round(ev.clientX - 2 * 12)
+      // 侧栏现为贴边面板（left: 0），手柄中线即宽度本身
+      const w = Math.round(ev.clientX)
       const clamped = Math.min(MAX_W, Math.max(MIN_W, w))
       document.documentElement.style.setProperty('--sidebar-w', clamped + 'px')
     }

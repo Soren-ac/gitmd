@@ -1,6 +1,32 @@
 import type { Metadata } from 'next'
+import { IBM_Plex_Mono, Literata, Newsreader } from 'next/font/google'
 import 'katex/dist/katex.min.css'
 import './globals.css'
+
+/* 三款拉丁字体自托管；中文由 --font-cjk 系统栈兜底（Google Fonts 无中文字形，
+   强行内嵌 Noto Sans SC 会带来数 MB 体积） */
+const newsreader = Newsreader({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
+  style: ['normal', 'italic'],
+  display: 'swap',
+  variable: '--font-display',
+})
+
+const literata = Literata({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
+  style: ['normal', 'italic'],
+  display: 'swap',
+  variable: '--font-serif',
+})
+
+const plexMono = IBM_Plex_Mono({
+  subsets: ['latin'],
+  weight: ['400', '500', '600'],
+  display: 'swap',
+  variable: '--font-code',
+})
 
 export const metadata: Metadata = {
   title: 'GitMD 文档平台',
@@ -18,7 +44,11 @@ if(w>=200&&w<=480)document.documentElement.style.setProperty('--sidebar-w',w+'px
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="zh-CN" suppressHydrationWarning>
+    <html
+      lang="zh-CN"
+      suppressHydrationWarning
+      className={`${newsreader.variable} ${literata.variable} ${plexMono.variable}`}
+    >
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInit }} />
       </head>
